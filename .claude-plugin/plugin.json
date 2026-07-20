@@ -1,0 +1,20 @@
+{
+  "name": "vault-experience",
+  "version": "0.1.0",
+  "description": "Dev experience vault: auto-search/record bugs, snippets, daily logs, and ADRs to a local Obsidian vault across multiple projects.",
+  "author": {
+    "name": "tal"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/vault-stop.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

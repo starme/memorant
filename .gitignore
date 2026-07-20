@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Editor
+.DS_Store
+.vscode/
+.idea/
+
+# Plugin local settings (contains user VAULT_ROOT path)
+.claude/vault.local.md
