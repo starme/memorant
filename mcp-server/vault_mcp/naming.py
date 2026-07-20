@@ -23,11 +23,63 @@ class ConflictError(Exception):
     """Raised when a target file already exists."""
 
 
+def _find_vault_local() -> str | None:
+    """Walk up from CWD looking for a `.claude/vault.local.md` plugin-settings
+    file and return its VAULT_ROOT frontmatter value. Returns None if absent.
+
+    This is the fallback when the VAULT_ROOT env var isn't set (e.g. when the
+    MCP server subprocess doesn't inherit a login shell's zprofile). Stops at
+    the user's home directory.
+    """
+    cwd = os.getcwd()
+    home = os.path.expanduser("~")
+    while True:
+        candidate = os.path.join(cwd, ".claude", "vault.local.md")
+        if os.path.isfile(candidate):
+            try:
+                with open(candidate, encoding="utf-8") as f:
+                    content = f.read()
+            except OSError:
+                return None
+            # Parse the YAML frontmatter for VAULT_ROOT. Crude but dependency-free:
+            # only need the one key, values may be quoted or unquoted, may contain spaces.
+            if content.startswith("---"):
+                end = content.find("\n---", 3)
+                if end != -1:
+                    fm = content[3:end]
+                    for line in fm.splitlines():
+                        if line.strip().lower().startswith("vault_root:"):
+                            val = line.split(":", 1)[1].strip()
+                            # strip surrounding quotes
+                            if len(val) >= 2 and val[0] in "\"'" and val[-1] == val[0]:
+                                val = val[1:-1]
+                            if val:
+                                return val
+            return None
+        if os.path.realpath(cwd) == os.path.realpath(home):
+            break
+        parent = os.path.dirname(cwd)
+        if parent == cwd:
+            break
+        cwd = parent
+    return None
+
+
 def vault_root() -> str:
+    """Resolve $VAULT_ROOT from env var, falling back to .claude/vault.local.md.
+
+    The env var wins when set (e.g. in CI or an explicitly-configured shell).
+    The local.md fallback handles the common case where the MCP server subprocess
+    doesn't inherit the login shell's zprofile exports.
+    """
     root = os.environ.get("VAULT_ROOT", "").strip()
     if not root:
+        root = (_find_vault_local() or "").strip()
+    if not root:
         raise RuntimeError(
-            "VAULT_ROOT is not set. Configure it via env var or .claude/vault.local.md."
+            "VAULT_ROOT is not set. Configure it via the VAULT_ROOT env var, "
+            "or create .claude/vault.local.md with `VAULT_ROOT: /path/to/vault` "
+            "in its frontmatter (searched upward from the working directory)."
         )
     return os.path.realpath(root)
 
