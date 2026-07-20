@@ -1,0 +1,12 @@
+{
+  "name": "vault-experience-marketplace",
+  "owner": {
+    "name": "starme"
+  },
+  "plugins": [
+    {
+      "name": "vault-experience",
+      "source": "./.claude-plugin"
+    }
+  ]
+}
