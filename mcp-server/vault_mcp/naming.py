@@ -23,39 +23,55 @@ class ConflictError(Exception):
     """Raised when a target file already exists."""
 
 
-def _find_vault_local() -> str | None:
-    """Walk up from CWD looking for a `.claude/vault.local.md` plugin-settings
-    file and return its VAULT_ROOT frontmatter value. Returns None if absent.
+def _read_vault_root_from(path: str) -> str | None:
+    """Read VAULT_ROOT from the frontmatter of a vault.local.md file."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            content = f.read()
+    except OSError:
+        return None
+    if not content.startswith("---"):
+        return None
+    end = content.find("\n---", 3)
+    if end == -1:
+        return None
+    fm = content[3:end]
+    for line in fm.splitlines():
+        if line.strip().lower().startswith("vault_root:"):
+            val = line.split(":", 1)[1].strip()
+            if len(val) >= 2 and val[0] in "\"'" and val[-1] == val[0]:
+                val = val[1:-1]
+            return val if val else None
+    return None
 
-    This is the fallback when the VAULT_ROOT env var isn't set (e.g. when the
-    MCP server subprocess doesn't inherit a login shell's zprofile). Stops at
-    the user's home directory.
+
+def _find_vault_local() -> str | None:
+    """Find VAULT_ROOT from a `vault.local.md` plugin-settings file.
+
+    Search order:
+      1. ~/.claude/vault.local.md  (user-level — checked first so a global
+         setting works regardless of CWD; the MCP server's CWD is often ~/.claude
+         itself, where the project-level walk below would miss it)
+      2. walk up from CWD looking for .claude/vault.local.md (project-level)
+
+    Returns None if neither exists. Fallback when the VAULT_ROOT env var isn't
+    set (e.g. the MCP subprocess didn't inherit zprofile exports).
     """
-    cwd = os.getcwd()
     home = os.path.expanduser("~")
+    # 1. user-level config
+    user_cfg = os.path.join(home, ".claude", "vault.local.md")
+    if os.path.isfile(user_cfg):
+        val = _read_vault_root_from(user_cfg)
+        if val:
+            return val
+    # 2. project-level walk-up from CWD
+    cwd = os.getcwd()
     while True:
         candidate = os.path.join(cwd, ".claude", "vault.local.md")
         if os.path.isfile(candidate):
-            try:
-                with open(candidate, encoding="utf-8") as f:
-                    content = f.read()
-            except OSError:
-                return None
-            # Parse the YAML frontmatter for VAULT_ROOT. Crude but dependency-free:
-            # only need the one key, values may be quoted or unquoted, may contain spaces.
-            if content.startswith("---"):
-                end = content.find("\n---", 3)
-                if end != -1:
-                    fm = content[3:end]
-                    for line in fm.splitlines():
-                        if line.strip().lower().startswith("vault_root:"):
-                            val = line.split(":", 1)[1].strip()
-                            # strip surrounding quotes
-                            if len(val) >= 2 and val[0] in "\"'" and val[-1] == val[0]:
-                                val = val[1:-1]
-                            if val:
-                                return val
-            return None
+            val = _read_vault_root_from(candidate)
+            if val:
+                return val
         if os.path.realpath(cwd) == os.path.realpath(home):
             break
         parent = os.path.dirname(cwd)

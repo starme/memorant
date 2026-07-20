@@ -1,9 +1,6 @@
 {
   "vault": {
     "command": "uvx",
-    "args": ["--from", "${CLAUDE_PLUGIN_ROOT}/mcp-server", "vault-mcp"],
-    "env": {
-      "VAULT_ROOT": "${VAULT_ROOT}"
-    }
+    "args": ["--from", "${CLAUDE_PLUGIN_ROOT}/mcp-server", "vault-mcp"]
   }
 }
