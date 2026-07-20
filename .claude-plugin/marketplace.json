@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "vault-experience",
-      "source": "./.claude-plugin"
+      "source": "."
     }
   ]
 }
