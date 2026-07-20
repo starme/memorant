@@ -48,8 +48,14 @@ def _search_rg(query: str, dirs: list[str], limit: int) -> list[dict]:
         if obj.get("type") != "match":
             continue
         data = obj.get("data", {})
-        hits = data.get("submatches", [])
-        text = "".join(h.get("match", {}).get("text", "") for h in hits) or data.get("lines", {}).get("text", "")
+        # Use the full matched line as the snippet, not the concatenation of
+        # all submatches (which would repeat the query word N times on a
+        # match-heavy line, e.g. "VAULT_ROOTVAULT_ROOT...").
+        text = data.get("lines", {}).get("text", "")
+        if not text:
+            # Fallback to first submatch if line text is absent.
+            hits = data.get("submatches", [])
+            text = hits[0].get("match", {}).get("text", "") if hits else ""
         abs_path = data.get("path", {}).get("text", "")
         rel = os.path.relpath(abs_path, root) if abs_path else ""
         line_no = data.get("line_number")
