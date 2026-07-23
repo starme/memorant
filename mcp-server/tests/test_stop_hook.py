@@ -112,3 +112,36 @@ def test_stop_hook_matches_python_case_insensitive_root_key(tmp_path: Path) -> N
     )
 
     assert "9 pending_review lead(s)" in result.stdout
+
+
+def test_stop_hook_supports_historical_vault_root_frontmatter(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    configured = tmp_path / "legacy vault"
+    (home / ".claude").mkdir(parents=True)
+    (project / ".claude").mkdir(parents=True)
+    (project / ".claude" / "vault.local.md").write_text(
+        f"---\nVAULT_ROOT: \"{configured}\"\n---\n",
+        encoding="utf-8",
+    )
+    _daily(configured, 11)
+
+    env = {
+        **os.environ,
+        "HOME": str(home),
+        "CLAUDE_PLUGIN_ROOT": str(REPO_ROOT),
+    }
+    env.pop("MEMORANT_ROOT", None)
+    env.pop("VAULT_ROOT", None)
+    result = subprocess.run(
+        ["bash", str(HOOK)],
+        cwd=project,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "11 pending_review lead(s)" in result.stdout

@@ -23,7 +23,7 @@ class ConflictError(Exception):
     """Raised when a target file already exists."""
 
 
-def _read_root_from(path: str) -> str | None:
+def _read_root_from(path: str, *, allow_vault_root: bool = False) -> str | None:
     """Read a root setting from a local Markdown file's frontmatter."""
     try:
         with open(path, encoding="utf-8") as f:
@@ -36,14 +36,20 @@ def _read_root_from(path: str) -> str | None:
     if end == -1:
         return None
     fm = content[3:end]
+    values: dict[str, str] = {}
     for line in fm.splitlines():
         key, separator, value = line.strip().partition(":")
-        if separator and key.strip().lower() == "root":
+        normalized_key = key.strip().lower()
+        if separator and (
+            normalized_key == "root"
+            or (allow_vault_root and normalized_key == "vault_root")
+        ):
             value = value.strip()
             if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
                 value = value[1:-1]
-            return value if value else None
-    return None
+            if value:
+                values[normalized_key] = value
+    return values.get("root") or values.get("vault_root")
 
 
 def _find_local(filename: str) -> str | None:
@@ -58,10 +64,11 @@ def _find_local(filename: str) -> str | None:
     Returns None if neither exists.
     """
     home = os.path.expanduser("~")
+    allow_vault_root = filename == "vault.local.md"
     # 1. user-level config
     user_cfg = os.path.join(home, ".claude", filename)
     if os.path.isfile(user_cfg):
-        val = _read_root_from(user_cfg)
+        val = _read_root_from(user_cfg, allow_vault_root=allow_vault_root)
         if val:
             return val
     # 2. project-level walk-up from CWD
@@ -69,7 +76,7 @@ def _find_local(filename: str) -> str | None:
     while True:
         candidate = os.path.join(cwd, ".claude", filename)
         if os.path.isfile(candidate):
-            val = _read_root_from(candidate)
+            val = _read_root_from(candidate, allow_vault_root=allow_vault_root)
             if val:
                 return val
         if os.path.realpath(cwd) == os.path.realpath(home):

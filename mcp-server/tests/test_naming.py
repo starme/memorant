@@ -80,9 +80,11 @@ def test_legacy_local_remains_supported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     vault_config = tmp_path / "vault-config"
-    _write_config(
-        tmp_path / ".claude" / "vault.local.md",
-        vault_config,
+    config = tmp_path / ".claude" / "vault.local.md"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        f"---\nVAULT_ROOT: {vault_config}\n---\n",
+        encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))

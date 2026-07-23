@@ -18,8 +18,9 @@ set -euo pipefail
 # --- resolve root ---
 read_setting() {
   local file="$1"
+  local allow_vault_root="${2:-0}"
   local value=""
-  value=$(awk '
+  value=$(awk -v allow_vault_root="$allow_vault_root" '
     NR == 1 {
       sub(/\r$/, "")
       if ($0 != "---") exit
@@ -28,16 +29,27 @@ read_setting() {
     }
     in_frontmatter {
       sub(/\r$/, "")
-      if ($0 == "---") exit
+      if ($0 == "---") {
+        if (legacy_value != "") print legacy_value
+        exit
+      }
       line = $0
       sub(/^[[:space:]]*/, "", line)
-      lower = tolower(line)
-      if (lower ~ /^root[[:space:]]*:/) {
-        line = substr(line, index(line, ":") + 1)
+      colon = index(line, ":")
+      if (colon > 0) {
+        key = substr(line, 1, colon - 1)
+        sub(/[[:space:]]*$/, "", key)
+        key = tolower(key)
+        line = substr(line, colon + 1)
         sub(/^[[:space:]]*/, "", line)
         sub(/[[:space:]]*$/, "", line)
-        print line
-        exit
+        if (key == "root" && line != "") {
+          print line
+          exit
+        }
+        if (allow_vault_root == "1" && key == "vault_root" && line != "") {
+          legacy_value = line
+        }
       }
     }
   ' "$file" 2>/dev/null || true)
@@ -54,10 +66,14 @@ read_setting() {
 
 find_setting() {
   local filename="$1"
+  local allow_vault_root=0
+  if [[ "$filename" == "vault.local.md" ]]; then
+    allow_vault_root=1
+  fi
   local value=""
   local candidate="${HOME:-}/.claude/$filename"
   if [[ -n "${HOME:-}" && -f "$candidate" ]]; then
-    value=$(read_setting "$candidate")
+    value=$(read_setting "$candidate" "$allow_vault_root")
     if [[ -n "$value" ]]; then
       echo "$value"
       return
@@ -68,7 +84,7 @@ find_setting() {
   while true; do
     candidate="$cursor/.claude/$filename"
     if [[ -f "$candidate" ]]; then
-      value=$(read_setting "$candidate")
+      value=$(read_setting "$candidate" "$allow_vault_root")
       if [[ -n "$value" ]]; then
         echo "$value"
         return
@@ -80,7 +96,7 @@ find_setting() {
 
   candidate="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/.claude/$filename"
   if [[ -f "$candidate" ]]; then
-    value=$(read_setting "$candidate")
+    value=$(read_setting "$candidate" "$allow_vault_root")
     [[ -n "$value" ]] && echo "$value"
   fi
 }
