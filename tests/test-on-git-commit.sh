@@ -110,5 +110,45 @@ OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && bash "$HOOK") || true)
 assert_contains "$OUT" '... ('
 rm -rf "$TMPREPO"
 
+# Test 8: transcript with error/retry hits → mechanical_evidence lists them.
+echo "Test 8: mechanical evidence from transcript hits"
+TMPREPO="$(mktemp -d)"; TMPTRANS="$(mktemp)"
+( cd "$TMPREPO"; git init -q; git config user.email t@t.t; git config user.name t
+  echo a > a.txt && git add a.txt && git commit -q -m "init"
+  echo b > a.txt && git add a.txt && git commit -q -m "fix: rate limit" )
+cat > "$TMPTRANS" <<'JSONL'
+{"role":"user","content":"it throws an error: NullPointerException"}
+{"role":"assistant","content":"let me retry with a different approach"}
+{"role":"user","content":"now it failed differently"}
+{"role":"assistant","content":"that worked"}
+JSONL
+STDIN='{"tool_input":{"command":"git commit -m \"fix: rate limit\""},"tool_response":{"stdout":"[main hit0001] fix: rate limit\n 1 file changed"}}'
+OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && VAULT_SESSION_TRANSCRIPT="$TMPTRANS" bash "$HOOK") || true)
+assert_contains "$OUT" 'mechanical_evidence:'
+assert_contains "$OUT" 'NullPointerException'
+assert_contains "$OUT" 'retry'
+rm -rf "$TMPREPO" "$TMPTRANS"
+
+# Test 9: no transcript path set → mechanical_evidence says unavailable.
+echo "Test 9: missing transcript → no script evidence"
+TMPREPO="$(mktemp -d)"
+( cd "$TMPREPO"; git init -q; git config user.email t@t.t; git config user.name t
+  echo a > a.txt && git add a.txt && git commit -q -m "fix: x" )
+STDIN='{"tool_input":{"command":"git commit -m \"fix: x\""},"tool_response":{"stdout":"[main non0002] fix: x\n 1 file changed"}}'
+OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && env -u VAULT_SESSION_TRANSCRIPT bash "$HOOK") || true)
+assert_contains "$OUT" 'mechanical_evidence: (transcript unavailable'
+rm -rf "$TMPREPO"
+
+# Test 10: transcript with no keyword hits → 0 keyword hits.
+echo "Test 10: clean transcript → 0 keyword hits"
+TMPREPO="$(mktemp -d)"; TMPTRANS="$(mktemp)"
+( cd "$TMPREPO"; git init -q; git config user.email t@t.t; git config user.name t
+  echo a > a.txt && git add a.txt && git commit -q -m "fix: y" )
+printf 'hello world\nthis is fine\n' > "$TMPTRANS"
+STDIN='{"tool_input":{"command":"git commit -m \"fix: y\""},"tool_response":{"stdout":"[main zero0003] fix: y\n 1 file changed"}}'
+OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && VAULT_SESSION_TRANSCRIPT="$TMPTRANS" bash "$HOOK") || true)
+assert_contains "$OUT" 'mechanical_evidence: 0 keyword hits'
+rm -rf "$TMPREPO" "$TMPTRANS"
+
 echo "----"
 if [[ "$FAILS" -eq 0 ]]; then echo "ALL PASS"; exit 0; else echo "$FAILS FAIL(S)"; exit 1; fi

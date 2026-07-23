@@ -111,13 +111,43 @@ else
   fi
 fi
 
-# --- build additionalContext (message + lean + files; mechanical_evidence next task) ---
+# --- mechanical evidence: grep the session transcript for debugging keywords ---
+# Reads VAULT_SESSION_TRANSCRIPT (a JSONL transcript path, if available).
+# Reports RAW matched lines only — never interprets whether a hit is a real
+# wrong-path (that is the LLM's job, per Flow D). Capped at 20 lines / 4000 chars.
+TRANS="${VAULT_SESSION_TRANSCRIPT:-}"
+EVIDENCE_BLOCK=""
+if [[ -z "$TRANS" || ! -f "$TRANS" ]]; then
+  EVIDENCE_BLOCK="mechanical_evidence: (transcript unavailable — no script evidence)"
+else
+  KEYWORDS='error|exception|traceback|failed|failure|retry|tried|wrong|bug|fatal|panic|segfault|null pointer|undefined|not defined|grep -r|stack trace'
+  HITS="$(grep -iE "$KEYWORDS" "$TRANS" 2>/dev/null | head -n 20 || true)"
+  HIT_COUNT=$(printf '%s\n' "$HITS" | grep -c . || true)
+  if [[ -z "$HITS" || "$HIT_COUNT" -eq 0 ]]; then
+    EVIDENCE_BLOCK="mechanical_evidence: 0 keyword hits (no script evidence of a debugging process)"
+  else
+    EVIDENCE_BLOCK="mechanical_evidence: $HIT_COUNT keyword hit(s)"
+    while IFS= read -r h; do
+      [[ -z "$h" ]] && continue
+      EVIDENCE_BLOCK="$EVIDENCE_BLOCK"$'\n'"- $h"
+    done <<< "$HITS"
+  fi
+fi
+
+# Hard cap the evidence block at 4000 chars (overall additionalContext ≤ 10000).
+if [[ ${#EVIDENCE_BLOCK} -gt 4000 ]]; then
+  EVIDENCE_BLOCK="${EVIDENCE_BLOCK:0:3990}
+... (evidence truncated)"
+fi
+
+# --- build additionalContext (message + lean + files + mechanical_evidence) ---
 CTX_FILE="$(mktemp)"
 {
   printf 'git commit landed: %s\n' "$HASH"
   printf 'message: %s\n' "$MSG"
   printf 'initial_verdict: %s (prefix: %s)\n' "$LEAN" "$PREFIX"
   printf '%s\n' "$FILES_BLOCK"
+  printf '%s\n' "$EVIDENCE_BLOCK"
   printf '\nIf this fixes a non-trivial bug, evaluate against the vault bug threshold (Flow B); corroborate with the mechanical_evidence below — never assert a debugging fact you cannot quote. Ask the user before recording.\n'
 } > "$CTX_FILE"
 
