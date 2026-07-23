@@ -1,0 +1,149 @@
+import asyncio
+import hashlib
+from pathlib import Path
+
+import frontmatter
+import pytest
+from pydantic import ValidationError
+
+from memorant_mcp.event_schema import EventInput
+from memorant_mcp.journal import append_event, list_pending_events, redact_secrets
+from memorant_mcp.server import (
+    memorant_append_event,
+    memorant_list_pending_events,
+    vault_append_entry,
+    vault_delete_entry,
+    vault_update_frontmatter,
+)
+
+
+BASE = {
+    "event_type": "tool.failure",
+    "session_id": "session-1",
+    "project": "memorant",
+    "source": "claude-code-hook",
+    "tool_name": "Bash",
+    "outcome": "failure",
+    "evidence_excerpt": "pytest failed",
+    "tags": ["test"],
+}
+
+
+def test_event_input_generates_strict_server_fields() -> None:
+    event = EventInput(**BASE).to_event()
+    assert event.event_id
+    assert event.observed_at.tzinfo is not None
+    assert event.payload_hash == hashlib.sha256(
+        EventInput(**BASE).canonical_payload()
+    ).hexdigest()
+    with pytest.raises(ValidationError):
+        EventInput(**{**BASE, "event_type": "made.up"})
+    with pytest.raises(ValidationError):
+        EventInput(**{**BASE, "unknown": "value"})
+    with pytest.raises(ValidationError):
+        EventInput(**{**BASE, "session_id": "x" * 300})
+
+
+def test_append_is_redacted_bounded_idempotent_and_immutable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    raw = {
+        **BASE,
+        "evidence_excerpt": (
+            "Authorization: Bearer abc.secret token=xyz password=hunter2 "
+            "api_key=sk-live\n-----BEGIN PRIVATE KEY-----\nSECRET\n"
+            "-----END PRIVATE KEY-----\n" + "z" * 10_000
+        ),
+    }
+    first = append_event(EventInput(**raw))
+    path = tmp_path / first["path"]
+    original = path.read_text()
+    second = append_event(EventInput(**raw))
+
+    assert first == second
+    assert len(list(tmp_path.glob("journal/**/*.md"))) == 1
+    assert "[REDACTED]" in original
+    assert "hunter2" not in original
+    assert "abc.secret" not in original
+    assert "PRIVATE KEY" not in original
+    assert len(frontmatter.loads(original).content) <= 4200
+    assert path.read_text() == original
+    assert first["path"].startswith("journal/")
+    assert ".." not in first["path"]
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        '{"env":{"HOME":"x","TOKEN":"secret"},"params":{"a":1}}',
+        '{"role":"user","content":"full transcript line"}\n'
+        '{"role":"assistant","content":"another line"}',
+        "HOME=/Users/example\nPATH=/usr/bin\nSHELL=/bin/zsh\nUSER=example",
+    ],
+)
+def test_redaction_falls_back_when_content_is_unsafe(unsafe: str) -> None:
+    assert redact_secrets(unsafe) == "[CONTENT OMITTED: unsafe structured payload]"
+
+
+@pytest.mark.parametrize(
+    ("credential", "secret_value"),
+    [
+        ("AWS_SECRET_ACCESS_KEY=aws-secret", "aws-secret"),
+        ("GITHUB_TOKEN=github-secret", "github-secret"),
+        ("OPENAI_API_KEY=openai-secret", "openai-secret"),
+        ("https://alice:db-secret@example.com/database", "db-secret"),
+    ],
+)
+def test_redaction_covers_common_credentials(
+    credential: str, secret_value: str
+) -> None:
+    assert secret_value not in redact_secrets(credential)
+
+
+def test_pending_events_exclude_memory_references_and_sort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    first = append_event(EventInput(**BASE))
+    second = append_event(EventInput(**{**BASE, "session_id": "session-2"}))
+    assert [x["event_id"] for x in list_pending_events(session_id="session-1")] == [
+        first["event_id"]
+    ]
+    memories = tmp_path / "memories"
+    memories.mkdir()
+    (memories / "one.md").write_text(
+        f"---\nsource_event_ids:\n- {first['event_id']}\n---\nbody\n"
+    )
+    pending = list_pending_events(project="memorant")
+    assert [x["event_id"] for x in pending] == [second["event_id"]]
+
+
+def test_structured_mcp_tools_return_dicts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    created = asyncio.run(memorant_append_event(**BASE))
+    pending = asyncio.run(memorant_list_pending_events(session_id="session-1"))
+    assert created["event_type"] == "tool.failure"
+    assert pending["events"][0]["event_id"] == created["event_id"]
+
+
+def test_legacy_mutation_tools_cannot_change_journal_events(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    created = append_event(EventInput(**BASE))
+    path = tmp_path / created["path"]
+    original = path.read_text()
+
+    append_result = asyncio.run(vault_append_entry(created["path"], "changed"))
+    update_result = asyncio.run(
+        vault_update_frontmatter(created["path"], "outcome", "changed")
+    )
+    delete_result = asyncio.run(vault_delete_entry(created["path"], confirm=True))
+
+    assert append_result.startswith("IMMUTABLE:")
+    assert update_result.startswith("IMMUTABLE:")
+    assert delete_result.startswith("IMMUTABLE:")
+    assert path.read_text() == original

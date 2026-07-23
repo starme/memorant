@@ -23,6 +23,8 @@ from typing import Any, Optional
 import frontmatter
 from mcp.server.fastmcp import FastMCP
 
+from .event_schema import EventInput
+from .journal import append_event, list_pending_events
 from .naming import (
     ConflictError,
     PathForbiddenError,
@@ -80,6 +82,11 @@ def _write_entry(rel_path: str, fm: dict, body: str) -> str:
     with open(safe, "w", encoding="utf-8") as f:
         f.write(frontmatter.dumps(post))
     return rel_path
+
+
+def _is_journal_path(path: str) -> bool:
+    journal = os.path.join(vault_root(), "journal")
+    return path == journal or path.startswith(journal + os.sep)
 
 
 @mcp.tool(
@@ -208,6 +215,8 @@ async def vault_append_entry(
     """
     try:
         safe = resolve_safe_path(path)
+        if _is_journal_path(safe):
+            return f"IMMUTABLE: journal event cannot be changed: {path}"
         if not os.path.exists(safe):
             return f"NOT_FOUND: {path}"
         with open(safe, "r", encoding="utf-8") as f:
@@ -248,6 +257,8 @@ async def vault_update_frontmatter(
     """
     try:
         safe = resolve_safe_path(path)
+        if _is_journal_path(safe):
+            return f"IMMUTABLE: journal event cannot be changed: {path}"
         if not os.path.exists(safe):
             return f"NOT_FOUND: {path}"
         with open(safe, "r", encoding="utf-8") as f:
@@ -279,6 +290,8 @@ async def vault_delete_entry(path: str, confirm: bool = False) -> str:
         return "REFUSED: pass confirm=true to delete"
     try:
         safe = resolve_safe_path(path)
+        if _is_journal_path(safe):
+            return f"IMMUTABLE: journal event cannot be changed: {path}"
         if not os.path.exists(safe):
             return f"NOT_FOUND: {path}"
         os.remove(safe)
@@ -322,6 +335,52 @@ async def vault_get_recent(dir: str, limit: int = 10) -> str:
         return f"{len(files)} recent in {dir}:\n" + "\n".join(lines)
     except Exception as e:
         return f"ERROR: {e}"
+
+
+@mcp.tool(name="memorant_append_event")
+async def memorant_append_event(
+    event_type: str,
+    session_id: str,
+    project: str,
+    source: str,
+    tool_name: Optional[str] = None,
+    outcome: Optional[str] = None,
+    evidence_excerpt: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """Append a strict, redacted event to the immutable local journal."""
+    try:
+        event = EventInput(
+            event_type=event_type,
+            session_id=session_id,
+            project=project,
+            source=source,
+            tool_name=tool_name,
+            outcome=outcome,
+            evidence_excerpt=evidence_excerpt,
+            tags=tags or [],
+        )
+        return append_event(event)
+    except ValueError as e:
+        return {"error": "VALIDATION_ERROR", "message": str(e)}
+    except Exception as e:
+        return {"error": "ERROR", "message": str(e)}
+
+
+@mcp.tool(
+    name="memorant_list_pending_events",
+    annotations={"readOnlyHint": True, "openWorldHint": False},
+)
+async def memorant_list_pending_events(
+    session_id: Optional[str] = None,
+    project: Optional[str] = None,
+) -> dict[str, Any]:
+    """List journal events not referenced by any memory source_event_ids."""
+    try:
+        events = list_pending_events(session_id=session_id, project=project)
+        return {"events": events, "count": len(events)}
+    except Exception as e:
+        return {"error": "ERROR", "message": str(e), "events": [], "count": 0}
 
 
 def main() -> None:

@@ -50,3 +50,24 @@ def test_marketplace_has_strict_validation_description() -> None:
 
 def test_repository_does_not_commit_environment_specific_uv_lock() -> None:
     assert not (REPO_ROOT / "mcp-server" / "uv.lock").exists()
+
+
+def test_plugin_registers_journal_observer_hooks() -> None:
+    plugin = json.loads((REPO_ROOT / ".claude-plugin" / "plugin.json").read_text())
+    expected = {
+        "SessionStart",
+        "UserPromptSubmit",
+        "PostToolUseFailure",
+        "PostToolUse",
+        "PreCompact",
+        "SessionEnd",
+    }
+    assert expected.issubset(plugin["hooks"])
+    for event in expected:
+        entries = plugin["hooks"][event]
+        commands = [
+            hook["command"]
+            for entry in entries
+            for hook in entry["hooks"]
+        ]
+        assert commands == ["${CLAUDE_PLUGIN_ROOT}/hooks/memorant-hook.sh"]

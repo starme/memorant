@@ -145,6 +145,8 @@ def test_server_keeps_legacy_tool_names() -> None:
         "vault_update_frontmatter",
         "vault_delete_entry",
         "vault_get_recent",
+        "memorant_append_event",
+        "memorant_list_pending_events",
     ]
 
 
