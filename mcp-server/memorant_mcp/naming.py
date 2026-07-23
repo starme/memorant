@@ -23,7 +23,7 @@ class ConflictError(Exception):
     """Raised when a target file already exists."""
 
 
-def _read_root_from(path: str, key: str) -> str | None:
+def _read_root_from(path: str) -> str | None:
     """Read a root setting from a local Markdown file's frontmatter."""
     try:
         with open(path, encoding="utf-8") as f:
@@ -37,15 +37,16 @@ def _read_root_from(path: str, key: str) -> str | None:
         return None
     fm = content[3:end]
     for line in fm.splitlines():
-        if line.strip().lower().startswith(f"{key.lower()}:"):
-            val = line.split(":", 1)[1].strip()
-            if len(val) >= 2 and val[0] in "\"'" and val[-1] == val[0]:
-                val = val[1:-1]
-            return val if val else None
+        key, separator, value = line.strip().partition(":")
+        if separator and key.strip().lower() == "root":
+            value = value.strip()
+            if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
+                value = value[1:-1]
+            return value if value else None
     return None
 
 
-def _find_local(filename: str, key: str) -> str | None:
+def _find_local(filename: str) -> str | None:
     """Find a root value from a `.claude/<name>.local.md` settings file.
 
     Search order:
@@ -60,7 +61,7 @@ def _find_local(filename: str, key: str) -> str | None:
     # 1. user-level config
     user_cfg = os.path.join(home, ".claude", filename)
     if os.path.isfile(user_cfg):
-        val = _read_root_from(user_cfg, key)
+        val = _read_root_from(user_cfg)
         if val:
             return val
     # 2. project-level walk-up from CWD
@@ -68,7 +69,7 @@ def _find_local(filename: str, key: str) -> str | None:
     while True:
         candidate = os.path.join(cwd, ".claude", filename)
         if os.path.isfile(candidate):
-            val = _read_root_from(candidate, key)
+            val = _read_root_from(candidate)
             if val:
                 return val
         if os.path.realpath(cwd) == os.path.realpath(home):
@@ -87,11 +88,11 @@ def vault_root() -> str:
     """
     root = os.environ.get("MEMORANT_ROOT", "").strip()
     if not root:
-        root = (_find_local("memorant.local.md", "MEMORANT_ROOT") or "").strip()
+        root = (_find_local("memorant.local.md") or "").strip()
     if not root:
         root = os.environ.get("VAULT_ROOT", "").strip()
     if not root:
-        root = (_find_local("vault.local.md", "VAULT_ROOT") or "").strip()
+        root = (_find_local("vault.local.md") or "").strip()
     if not root:
         raise RuntimeError(
             "MEMORANT_ROOT is not set. Configure MEMORANT_ROOT or "

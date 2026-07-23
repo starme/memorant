@@ -30,6 +30,7 @@ def _search_rg(query: str, dirs: list[str], limit: int) -> list[dict]:
         "-i",
         "--max-count", "3",
         "-g", "*.md",
+        "--",
         query,
         *paths,
     ]

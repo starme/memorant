@@ -1,6 +1,8 @@
 {
-  "memorant": {
-    "command": "uvx",
-    "args": ["--from", "${CLAUDE_PLUGIN_ROOT}/mcp-server", "memorant-mcp"]
+  "mcpServers": {
+    "memorant": {
+      "command": "uvx",
+      "args": ["--from", "${CLAUDE_PLUGIN_ROOT}/mcp-server", "memorant-mcp"]
+    }
   }
 }

@@ -1,16 +1,14 @@
 import asyncio
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from memorant_mcp.server import (
     mcp,
-    vault_append_entry,
     vault_create_entry,
-    vault_delete_entry,
-    vault_get_recent,
-    vault_search,
-    vault_update_frontmatter,
 )
 
 
@@ -32,6 +30,52 @@ def test_stack_syncs_from_top_level_to_frontmatter(
 
     assert result == "created: bugs/python-连接超时-20260723.md"
     assert "stack:\n- Python" in (tmp_path / result.removeprefix("created: ")).read_text()
+
+
+def test_stack_syncs_from_frontmatter_to_filename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+
+    result = asyncio.run(
+        vault_create_entry(
+            type="bug",
+            title="连接重置",
+            body="# body",
+            frontmatter={
+                "stack": ["Go"],
+                "version": {"go": "1.24"},
+                "status": "resolved",
+            },
+            date_str="2026-07-23",
+        )
+    )
+
+    assert result == "created: bugs/go-连接重置-20260723.md"
+
+
+def test_project_syncs_from_top_level_to_frontmatter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+
+    result = asyncio.run(
+        vault_create_entry(
+            type="bug",
+            title="project sync",
+            body="# body",
+            frontmatter={
+                "stack": ["Python"],
+                "version": {"python": "3.12"},
+                "status": "resolved",
+            },
+            project="Memorant",
+            date_str="2026-07-23",
+        )
+    )
+
+    content = (tmp_path / result.removeprefix("created: ")).read_text()
+    assert "project: Memorant" in content
 
 
 def test_project_syncs_from_frontmatter_to_arch_filename(
@@ -93,15 +137,8 @@ def test_dual_channel_mismatch_is_rejected(
 
 def test_server_keeps_legacy_tool_names() -> None:
     assert mcp.name == "memorant"
-    tools = [
-        vault_search,
-        vault_create_entry,
-        vault_append_entry,
-        vault_update_frontmatter,
-        vault_delete_entry,
-        vault_get_recent,
-    ]
-    assert [tool.__name__ for tool in tools] == [
+    registered = asyncio.run(mcp.list_tools())
+    assert [tool.name for tool in registered] == [
         "vault_search",
         "vault_create_entry",
         "vault_append_entry",
@@ -109,3 +146,25 @@ def test_server_keeps_legacy_tool_names() -> None:
         "vault_delete_entry",
         "vault_get_recent",
     ]
+
+
+@pytest.mark.parametrize("command", ["memorant-mcp", "vault-mcp"])
+def test_installed_cli_entrypoints_smoke(
+    command: str, tmp_path: Path
+) -> None:
+    executable = Path(sys.executable).with_name(command)
+    env = {**os.environ, "HOME": str(tmp_path)}
+    env.pop("MEMORANT_ROOT", None)
+    env.pop("VAULT_ROOT", None)
+
+    result = subprocess.run(
+        [str(executable)],
+        input="",
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr

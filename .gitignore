@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 dist/
 build/
+/mcp-server/uv.lock
 
 # Editor
 .DS_Store

@@ -20,7 +20,7 @@ def test_stop_hook_uses_project_memorant_config_before_legacy_environment(
     home = tmp_path / "home"
     project = tmp_path / "project"
     worktree = project / "nested"
-    memorant_root = tmp_path / "memorant-root"
+    memorant_root = tmp_path / "Tal's Memorant Root"
     legacy_root = tmp_path / "legacy-root"
     (home / ".claude").mkdir(parents=True)
     (home / ".claude" / "memorant.local.md").write_text(
@@ -28,7 +28,7 @@ def test_stop_hook_uses_project_memorant_config_before_legacy_environment(
     )
     (project / ".claude").mkdir(parents=True)
     (project / ".claude" / "memorant.local.md").write_text(
-        f"---\nMEMORANT_ROOT: {memorant_root}\n---\n", encoding="utf-8"
+        f"---\nroot: {memorant_root}\n---\n", encoding="utf-8"
     )
     worktree.mkdir()
     _daily(memorant_root, 7)
@@ -50,3 +50,65 @@ def test_stop_hook_uses_project_memorant_config_before_legacy_environment(
 
     assert result.stdout.startswith("[memorant]")
     assert "7 pending_review lead(s)" in result.stdout
+
+
+def test_stop_hook_ignores_root_outside_frontmatter(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    fake_root = tmp_path / "must-not-use"
+    (home / ".claude").mkdir(parents=True)
+    project.mkdir()
+    (project / ".claude").mkdir()
+    (project / ".claude" / "memorant.local.md").write_text(
+        f"---\nunrelated: true\n---\nroot: {fake_root}\n",
+        encoding="utf-8",
+    )
+
+    env = {
+        **os.environ,
+        "HOME": str(home),
+        "CLAUDE_PLUGIN_ROOT": str(REPO_ROOT),
+    }
+    env.pop("MEMORANT_ROOT", None)
+    env.pop("VAULT_ROOT", None)
+    result = subprocess.run(
+        ["bash", str(HOOK)],
+        cwd=project,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert result.stdout.startswith("[memorant] MEMORANT_ROOT is not configured")
+
+
+def test_stop_hook_matches_python_case_insensitive_root_key(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    configured = tmp_path / "configured"
+    (home / ".claude").mkdir(parents=True)
+    (project / ".claude").mkdir(parents=True)
+    (project / ".claude" / "memorant.local.md").write_text(
+        f"---\nROOT: \"{configured}\"\n---\n",
+        encoding="utf-8",
+    )
+    _daily(configured, 9)
+
+    env = {
+        **os.environ,
+        "HOME": str(home),
+        "CLAUDE_PLUGIN_ROOT": str(REPO_ROOT),
+    }
+    env.pop("MEMORANT_ROOT", None)
+    env.pop("VAULT_ROOT", None)
+    result = subprocess.run(
+        ["bash", str(HOOK)],
+        cwd=project,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "9 pending_review lead(s)" in result.stdout

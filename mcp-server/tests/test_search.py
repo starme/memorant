@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import pytest
@@ -37,3 +38,31 @@ def test_search_honors_limit(
     monkeypatch.setattr(search_module, "_rg_available", lambda: False)
 
     assert len(search_module.search("needle", dirs=["bugs"], limit=1)) == 1
+
+
+@pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep is not installed")
+def test_default_ripgrep_path_supports_regex_queries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_entry(tmp_path, "bugs/timeout.md", "memorant", "request timeout")
+    _write_entry(tmp_path, "bugs/deadline.md", "memorant", "deadline exceeded")
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+
+    results = search_module.search("timeout|deadline", dirs=["bugs"])
+
+    assert {result["file"] for result in results} == {
+        "bugs/timeout.md",
+        "bugs/deadline.md",
+    }
+
+
+@pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep is not installed")
+def test_default_ripgrep_path_treats_leading_dash_query_as_pattern(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_entry(tmp_path, "bugs/flag.md", "memorant", "error code -danger")
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+
+    results = search_module.search("-danger", dirs=["bugs"])
+
+    assert [result["file"] for result in results] == ["bugs/flag.md"]

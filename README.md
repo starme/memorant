@@ -57,7 +57,7 @@ export MEMORANT_ROOT=/path/to/your/knowledge-base
 mkdir -p .claude
 cat > .claude/memorant.local.md <<'EOF'
 ---
-MEMORANT_ROOT: /path/to/your/knowledge-base
+root: /path/to/your/knowledge-base
 ---
 EOF
 ```

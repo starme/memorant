@@ -18,19 +18,46 @@ set -euo pipefail
 # --- resolve root ---
 read_setting() {
   local file="$1"
-  local key="$2"
-  grep -m1 "^${key}:" "$file" 2>/dev/null \
-    | sed "s/^${key}:[[:space:]]*//" \
-    | tr -d "\"'" || true
+  local value=""
+  value=$(awk '
+    NR == 1 {
+      sub(/\r$/, "")
+      if ($0 != "---") exit
+      in_frontmatter = 1
+      next
+    }
+    in_frontmatter {
+      sub(/\r$/, "")
+      if ($0 == "---") exit
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
+      lower = tolower(line)
+      if (lower ~ /^root[[:space:]]*:/) {
+        line = substr(line, index(line, ":") + 1)
+        sub(/^[[:space:]]*/, "", line)
+        sub(/[[:space:]]*$/, "", line)
+        print line
+        exit
+      }
+    }
+  ' "$file" 2>/dev/null || true)
+
+  if [[ ${#value} -ge 2 ]]; then
+    local first="${value:0:1}"
+    local last="${value: -1}"
+    if [[ ( "$first" == '"' && "$last" == '"' ) || ( "$first" == "'" && "$last" == "'" ) ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+  fi
+  echo "$value"
 }
 
 find_setting() {
   local filename="$1"
-  local key="$2"
   local value=""
   local candidate="${HOME:-}/.claude/$filename"
   if [[ -n "${HOME:-}" && -f "$candidate" ]]; then
-    value=$(read_setting "$candidate" "$key")
+    value=$(read_setting "$candidate")
     if [[ -n "$value" ]]; then
       echo "$value"
       return
@@ -41,7 +68,7 @@ find_setting() {
   while true; do
     candidate="$cursor/.claude/$filename"
     if [[ -f "$candidate" ]]; then
-      value=$(read_setting "$candidate" "$key")
+      value=$(read_setting "$candidate")
       if [[ -n "$value" ]]; then
         echo "$value"
         return
@@ -53,27 +80,27 @@ find_setting() {
 
   candidate="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/.claude/$filename"
   if [[ -f "$candidate" ]]; then
-    value=$(read_setting "$candidate" "$key")
+    value=$(read_setting "$candidate")
     [[ -n "$value" ]] && echo "$value"
   fi
 }
 
 MEMORANT_DATA_ROOT="${MEMORANT_ROOT:-}"
 if [[ -z "$MEMORANT_DATA_ROOT" ]]; then
-  MEMORANT_DATA_ROOT=$(find_setting "memorant.local.md" "MEMORANT_ROOT")
+  MEMORANT_DATA_ROOT=$(find_setting "memorant.local.md")
 fi
 if [[ -z "$MEMORANT_DATA_ROOT" ]]; then
   MEMORANT_DATA_ROOT="${VAULT_ROOT:-}"
 fi
 if [[ -z "$MEMORANT_DATA_ROOT" ]]; then
-  MEMORANT_DATA_ROOT=$(find_setting "vault.local.md" "VAULT_ROOT")
+  MEMORANT_DATA_ROOT=$(find_setting "vault.local.md")
 fi
 
 if [[ -z "$MEMORANT_DATA_ROOT" ]]; then
   cat <<'EOF'
 [memorant] MEMORANT_ROOT is not configured. To enable recording, either:
   export MEMORANT_ROOT=/path/to/your/knowledge-base
-  or create .claude/memorant.local.md with `MEMORANT_ROOT: /path/to/your/knowledge-base`.
+  or create .claude/memorant.local.md with `root: /path/to/your/knowledge-base`.
 Legacy VAULT_ROOT and .claude/vault.local.md remain supported.
 EOF
   exit 0
