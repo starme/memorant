@@ -121,7 +121,8 @@ async def vault_create_entry(
     """Create a new vault entry file with schema validation.
 
     For arch: a global sequence number is auto-assigned (do not pass one).
-    For bug/snippet: pass `stack`. For daily: `project` may be a list.
+    For bug/snippet: pass `stack` — either as the top-level param, or in
+    `frontmatter`, or both (they must agree). For daily: `project` may be a list.
     Required frontmatter fields vary by type — the validator reports which are
     missing. Writes are refused if the path escapes $VAULT_ROOT or the file
     already exists.
@@ -134,6 +135,19 @@ async def vault_create_entry(
         fm["date"] = the_date
         if project is not None:
             fm["project"] = project
+        # `stack` is both a top-level param (used for the filename) and a
+        # required frontmatter field (used for validation). Accept either one
+        # so callers don't have to pass it twice — but reject a mismatch instead
+        # of silently picking one.
+        fm_stack = fm.get("stack")
+        if stack is not None and fm_stack is None:
+            fm["stack"] = stack
+        elif stack is None and fm_stack is not None:
+            stack = fm_stack  # back-fill the filename param
+        elif stack is not None and fm_stack is not None and list(stack) != list(fm_stack):
+            raise ValueError(
+                f"stack mismatch: top-level {stack!r} vs frontmatter {fm_stack!r}; pass one or make them equal"
+            )
         cleaned = _validate_and_serialize(type, fm, title)
 
         # Allocate the real sequence only after validation passes.
