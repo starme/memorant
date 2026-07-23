@@ -94,6 +94,43 @@ Daily is the inbox; bugs/snippets/arch are the permanent home. Promote in three 
 
 ---
 
+## Flow D — Commit-triggered bug evaluation
+
+**Trigger**: the `on-git-commit.sh` PostToolUse hook fires after a `git commit` run via the Bash tool and re-injects a `git commit landed: <hash>` / `message: …` / `initial_verdict: <lean> (prefix: …)` / `files:` / `mechanical_evidence:` system reminder. Use that reminder as a **deterministic trigger** to evaluate whether the commit fixes a recordable bug — this bypasses the unreliable "Claude proactively decides" path. Only commits made through the Bash tool in-session trigger this flow (terminal/IDE commits do not).
+
+**Division of labor (hard rule).** The script does the deterministic parts; you (Claude) do the analytic parts, and the two cross-confirm:
+- **Script (deterministic, already done by the time you see the reminder)**: classified the commit prefix into an `initial_verdict` lean; listed the changed files; grepped the session transcript for debugging keywords and listed the **raw matched lines** under `mechanical_evidence:` (it reports only what it found — it does not interpret).
+- **You (analytic)**: read the raw evidence + the live session context; judge whether each raw hit is a *genuine* wrong-path (a keyword hit can be a quote, a discussion, or unrelated code — you decide); corroborate or overturn the `initial_verdict` lean.
+
+**NO FABRICATION (top-level red line).** You must never assert a debugging fact you cannot point to a concrete source for:
+1. Every corroborating claim must **quote a raw line from `mechanical_evidence:`** (a literal excerpt) OR be explicitly tagged `UNVERIFIED-BY-SCRIPT` with a one-line reason. "I recall we tried X" / "we probably hit Y" is fabrication and is forbidden.
+2. If `mechanical_evidence:` is `0 keyword hits` or `(transcript unavailable)`, you may NOT claim a debugging process existed on context alone. You may say: "mechanical scan found no evidence; my read of the context suggests Z, but this is unverified — please confirm." Do NOT silently record on that basis.
+3. If a hit is ambiguous (could be a quote / unrelated), you may use it **only** after explaining in your preview why it is a genuine wrong-path — and that explanation is your judgment, stated as judgment, not as fact.
+
+### Evaluation (two layers, cross-confirming)
+
+1. **Initial verdict (from the reminder's `initial_verdict`)** — the script's deterministic lean from the commit prefix (B1: prefix sets a *default lean*, overridable):
+   - `worth-recording` (`fix`/`feat`/`refactor`/`perf`/`build`) → lean toward record.
+   - `not-worth-recording` (`chore`/`docs`/`style`/`test`/`ci`) → lean toward skip.
+   - `unknown` → no lean; decide purely on corroboration.
+2. **Corroboration (your analysis of `mechanical_evidence:` + session context)** — does the evidence confirm or overturn the lean? Use the **Flow B bug threshold clauses** as the corroboration check (`≥ 5 min and ≥ 2 wrong paths` / `first Google result wasn't the answer` / `step on this again` / `production-grade · multi-person · cross-service impact`), and every clause you cite must be backed by a quoted raw line.
+
+### Four outcomes (the only valid branches)
+
+1. **Lean "worth-recording" + corroborated by quoted raw evidence** → judge **qualified**. Preview to the user — *"commit `<hash>`: initial verdict `<lean>`; corroboration: `<quoted raw line(s)>` satisfies Flow B clause `<clause>`."* — and only on user confirmation run Flow B's recording procedure (dedup → collect fields → `vault_create_entry`) in the current turn.
+2. **Lean "worth-recording" + `mechanical_evidence` is empty/0-hits/unavailable** → do **not** finalize on the lean alone. Tell the user plainly: *"initial verdict leans worth-recording, but the mechanical scan found no script evidence for this commit's debugging; my read of the context suggests `<X>` (UNVERIFIED-BY-SCRIPT) — supply the debugging process or confirm whether to record."* Do not silently record, do not silently drop.
+3. **Lean "not-worth-recording" + no overturning quoted evidence** → tell the user the skip reason (e.g. *"diff is a 1-line typo; `mechanical_evidence` shows no wrong-path hits"*) and do not write.
+4. **Lean "not-worth-recording" + quoted raw evidence overturns it** (e.g. a `docs:` commit whose `mechanical_evidence` shows a schema-pitfall traceback) → overturn the lean, judge **qualified**, preview + ask the user as in branch 1.
+
+### Rules
+- **Never silent.** Whether qualified or not, the verdict + its script-evidence basis (or the explicit `UNVERIFIED-BY-SCRIPT` tag) must be visible to the user.
+- **Never auto-write.** Writing to the vault is writing to Obsidian — outward-facing, requires user confirmation (user red line). Always preview + ask first.
+- The **bug threshold** is Flow B's; the **recording procedure** is Flow B's (dedup → collect required fields → `vault_create_entry`); if a field is missing, ask the user rather than writing an incomplete entry.
+- The `mechanical_evidence` scan depends on `VAULT_SESSION_TRANSCRIPT` being set; if it is not, the block reports `(transcript unavailable)` and you proceed on the lean + your own context read only — but with every claim tagged `UNVERIFIED-BY-SCRIPT` (no fabrication).
+- This flow does **not** replace the Stop hook — daily-log generation still goes through the Stop hook at session end. Flow D is specifically the bug-recording trigger anchored on `git commit`.
+
+---
+
 ## Quick reference
 
 - Search: `vault_search(query, dirs?, project?, limit?)`
