@@ -2,8 +2,8 @@
 
 `resolve_safe_path` is the security boundary: every write goes through it.
 MCP server file I/O bypasses Claude's Edit/Write tools (and thus the user's
-protect-files.sh hook), so the server must enforce its own $VAULT_ROOT whitelist
-here to prevent path traversal.
+protect-files.sh hook), so the server must enforce its own configured root
+whitelist here to prevent path traversal.
 """
 
 from __future__ import annotations
@@ -16,15 +16,15 @@ from .schema import EntryType
 
 
 class PathForbiddenError(Exception):
-    """Raised when a resolved path escapes $VAULT_ROOT."""
+    """Raised when a resolved path escapes the configured Memorant root."""
 
 
 class ConflictError(Exception):
     """Raised when a target file already exists."""
 
 
-def _read_vault_root_from(path: str) -> str | None:
-    """Read VAULT_ROOT from the frontmatter of a vault.local.md file."""
+def _read_root_from(path: str, key: str) -> str | None:
+    """Read a root setting from a local Markdown file's frontmatter."""
     try:
         with open(path, encoding="utf-8") as f:
             content = f.read()
@@ -37,7 +37,7 @@ def _read_vault_root_from(path: str) -> str | None:
         return None
     fm = content[3:end]
     for line in fm.splitlines():
-        if line.strip().lower().startswith("vault_root:"):
+        if line.strip().lower().startswith(f"{key.lower()}:"):
             val = line.split(":", 1)[1].strip()
             if len(val) >= 2 and val[0] in "\"'" and val[-1] == val[0]:
                 val = val[1:-1]
@@ -45,31 +45,30 @@ def _read_vault_root_from(path: str) -> str | None:
     return None
 
 
-def _find_vault_local() -> str | None:
-    """Find VAULT_ROOT from a `vault.local.md` plugin-settings file.
+def _find_local(filename: str, key: str) -> str | None:
+    """Find a root value from a `.claude/<name>.local.md` settings file.
 
     Search order:
-      1. ~/.claude/vault.local.md  (user-level — checked first so a global
+      1. ~/.claude/<name>.local.md  (user-level — checked first so a global
          setting works regardless of CWD; the MCP server's CWD is often ~/.claude
          itself, where the project-level walk below would miss it)
-      2. walk up from CWD looking for .claude/vault.local.md (project-level)
+      2. walk up from CWD looking for .claude/<name>.local.md (project-level)
 
-    Returns None if neither exists. Fallback when the VAULT_ROOT env var isn't
-    set (e.g. the MCP subprocess didn't inherit zprofile exports).
+    Returns None if neither exists.
     """
     home = os.path.expanduser("~")
     # 1. user-level config
-    user_cfg = os.path.join(home, ".claude", "vault.local.md")
+    user_cfg = os.path.join(home, ".claude", filename)
     if os.path.isfile(user_cfg):
-        val = _read_vault_root_from(user_cfg)
+        val = _read_root_from(user_cfg, key)
         if val:
             return val
     # 2. project-level walk-up from CWD
     cwd = os.getcwd()
     while True:
-        candidate = os.path.join(cwd, ".claude", "vault.local.md")
+        candidate = os.path.join(cwd, ".claude", filename)
         if os.path.isfile(candidate):
-            val = _read_vault_root_from(candidate)
+            val = _read_root_from(candidate, key)
             if val:
                 return val
         if os.path.realpath(cwd) == os.path.realpath(home):
@@ -82,36 +81,38 @@ def _find_vault_local() -> str | None:
 
 
 def vault_root() -> str:
-    """Resolve $VAULT_ROOT from env var, falling back to .claude/vault.local.md.
+    """Resolve the Memorant root while preserving Vault compatibility.
 
-    The env var wins when set (e.g. in CI or an explicitly-configured shell).
-    The local.md fallback handles the common case where the MCP server subprocess
-    doesn't inherit the login shell's zprofile exports.
+    Priority: MEMORANT_ROOT > memorant.local.md > VAULT_ROOT > vault.local.md.
     """
-    root = os.environ.get("VAULT_ROOT", "").strip()
+    root = os.environ.get("MEMORANT_ROOT", "").strip()
     if not root:
-        root = (_find_vault_local() or "").strip()
+        root = (_find_local("memorant.local.md", "MEMORANT_ROOT") or "").strip()
+    if not root:
+        root = os.environ.get("VAULT_ROOT", "").strip()
+    if not root:
+        root = (_find_local("vault.local.md", "VAULT_ROOT") or "").strip()
     if not root:
         raise RuntimeError(
-            "VAULT_ROOT is not set. Configure it via the VAULT_ROOT env var, "
-            "or create .claude/vault.local.md with `VAULT_ROOT: /path/to/vault` "
-            "in its frontmatter (searched upward from the working directory)."
+            "MEMORANT_ROOT is not set. Configure MEMORANT_ROOT or "
+            ".claude/memorant.local.md; legacy VAULT_ROOT and "
+            ".claude/vault.local.md remain supported."
         )
     return os.path.realpath(root)
 
 
 def resolve_safe_path(rel_path: str) -> str:
-    """Resolve a relative path against $VAULT_ROOT, refusing traversal.
+    """Resolve a relative path against the configured root, refusing traversal.
 
     Accepts forward slashes. After realpath, the result must start with
-    $VAULT_ROOT + separator — anything else is path_forbidden.
+    the root plus a separator — anything else is path_forbidden.
     """
     root = vault_root()
     # Join then realpath; realpath collapses '..' and symlinks.
     candidate = os.path.realpath(os.path.join(root, rel_path))
     if candidate != root and not candidate.startswith(root + os.sep):
         raise PathForbiddenError(
-            f"path escapes VAULT_ROOT: {rel_path!r} -> {candidate}"
+            f"path escapes MEMORANT_ROOT: {rel_path!r} -> {candidate}"
         )
     return candidate
 

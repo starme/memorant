@@ -1,4 +1,4 @@
-"""FastMCP server exposing the vault-experience tools.
+"""FastMCP server for 书童 · Memorant.
 
 Six tools (all `vault_` prefixed):
   - vault_search            read-only full-text search
@@ -9,7 +9,7 @@ Six tools (all `vault_` prefixed):
   - vault_get_recent        read-only: newest N entries in a dir
 
 The server validates frontmatter (Pydantic, extra=forbid) and refuses any path
-that resolves outside $VAULT_ROOT (resolve_safe_path). This is the security
+that resolves outside the configured Memorant root (resolve_safe_path). This is the security
 boundary since MCP file I/O bypasses Claude's Edit/Write tools (and thus the
 user's protect-files.sh hook).
 """
@@ -35,7 +35,13 @@ from .naming import (
 from .schema import EntryType, SCHEMA_BY_TYPE
 from .search import search as do_search
 
-mcp = FastMCP("vault_mcp")
+mcp = FastMCP(
+    "memorant",
+    instructions=(
+        "书童 · Memorant: search and record development experience in a "
+        "local Markdown knowledge base. Legacy vault_* tools remain supported."
+    ),
+)
 
 
 def _validate_and_serialize(entry_type: str, fm: dict, title: str) -> dict:
@@ -118,7 +124,7 @@ async def vault_create_entry(
     stack: Optional[list[str]] = None,
     project: Optional[Any] = None,
 ) -> str:
-    """Create a new vault entry file with schema validation.
+    """Create a new Memorant entry file with schema validation.
 
     For arch: a global sequence number is auto-assigned (do not pass one).
     For bug/snippet: pass `stack` — either as the top-level param, or in
@@ -126,7 +132,7 @@ async def vault_create_entry(
     `project` follows the same dual-pass rule: pass it top-level, in frontmatter,
     or both (must agree) — arch filenames use it.
     Required frontmatter fields vary by type — the validator reports which are
-    missing. Writes are refused if the path escapes $VAULT_ROOT or the file
+    missing. Writes are refused if the path escapes the configured root or the file
     already exists.
     """
     try:
@@ -197,7 +203,7 @@ async def vault_append_entry(
     content: str,
     section: Optional[str] = None,
 ) -> str:
-    """Append content to an existing vault file. If `section` is given, append
+    """Append content to an existing Memorant file. If `section` is given, append
     under that heading (creating it if missing). Used for daily log growth.
     """
     try:
@@ -235,7 +241,7 @@ async def vault_update_frontmatter(
     key: str,
     value: Any,
 ) -> str:
-    """Atomically set one frontmatter key on a vault file.
+    """Atomically set one frontmatter key on a Memorant file.
 
     Use for pending_review increment/decrement (pass an int) and ADR status
     flip to 'superseded' when a newer ADR supersedes it.
@@ -259,13 +265,13 @@ async def vault_update_frontmatter(
 @mcp.tool(
     name="vault_delete_entry",
     annotations={
-        "title": "Delete vault entry",
+        "title": "Delete Memorant entry",
         "destructiveHint": True,
         "idempotentHint": True,
     },
 )
 async def vault_delete_entry(path: str, confirm: bool = False) -> str:
-    """Delete a vault file. Used by the promote flow to remove a migrated
+    """Delete a Memorant file. Used by the promote flow to remove a migrated
     daily line's source (when the line is the whole file) — typically you
     update the daily file instead. `confirm` must be true to proceed.
     """
@@ -292,14 +298,14 @@ async def vault_delete_entry(path: str, confirm: bool = False) -> str:
     },
 )
 async def vault_get_recent(dir: str, limit: int = 10) -> str:
-    """Return the newest N files in a vault dir (bugs/snippets/daily/arch),
+    """Return the newest N files in a Memorant dir (bugs/snippets/daily/arch),
     by mtime. Use for daily review / pending_review triage.
     """
     try:
         root = vault_root()
         target = os.path.realpath(os.path.join(root, dir))
         if target != root and not target.startswith(root + os.sep):
-            return "PATH_FORBIDDEN: dir escapes VAULT_ROOT"
+            return "PATH_FORBIDDEN: dir escapes MEMORANT_ROOT"
         if not os.path.isdir(target):
             return f"NOT_FOUND: {dir}"
         files = [

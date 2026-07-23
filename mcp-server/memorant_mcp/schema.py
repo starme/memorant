@@ -1,4 +1,4 @@
-"""Pydantic models for the four vault entry types' frontmatter.
+"""Pydantic models for the four Memorant entry types' frontmatter.
 
 Each model validates the frontmatter of one category. `extra='forbid'` rejects
 unknown fields so typos surface early. Required-field failures produce actionable

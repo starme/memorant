@@ -1,13 +1,13 @@
 ---
-name: vault
-description: Use when developing — search the dev experience vault for past bugs/snippets/ADRs before debugging or making tech choices, prompt to record non-trivial bugs/reusable snippets/architectural decisions after solving them, generate daily logs at session end, and promote daily "待升" leads into permanent bugs/snippets/ADR entries. Triggers on debugging, error messages, tech selection, "记到 vault", "vault", "经验库", daily summary, ADR.
+name: memorant
+description: Use when developing — search 书童 · Memorant for past bugs/snippets/ADRs before debugging or making tech choices, prompt to record non-trivial bugs/reusable snippets/architectural decisions after solving them, generate daily logs at session end, and promote daily "待升" leads into permanent bugs/snippets/ADR entries. Triggers on debugging, error messages, tech selection, "记到 memorant", "memorant", "vault", "经验库", daily summary, ADR.
 ---
 
-# Vault Experience Orchestrator
+# 书童 · Memorant Orchestrator
 
-Orchestrates the `vault_*` MCP tools into three flows: **search before acting**, **record after solving**, **promote daily leads**. The MCP server handles atomic file I/O + schema validation; this skill decides *when* to search, *whether* to record, and *where* to migrate.
+Orchestrates the legacy-compatible `vault_*` MCP tools into four flows: **search before acting**, **record after solving**, **promote daily leads**, and **commit-triggered evaluation**. The MCP server handles atomic file I/O + schema validation; this skill decides *when* to search, *whether* to record, and *where* to migrate.
 
-## Vault layout (do not deviate)
+## Memorant layout (do not deviate)
 
 | Type | Path | Filename | Project coupling |
 |---|---|---|---|
@@ -143,4 +143,4 @@ The `mechanical_evidence` scan reads the session transcript via the hook's `tran
 - Delete: `vault_delete_entry(path, confirm=true)` — rare, only when a daily lead is its own whole file
 - Recent: `vault_get_recent(dir, limit)`
 
-The Stop hook (`hooks/vault-stop.sh`) will remind you at session end: review the session for recordable bugs/decisions, generate/append the daily log, and on Fridays prompt to tidy `pending_review`. The hook only **prompts** — you (Claude) perform the actual writes via the tools above, after user confirmation.
+The compatible Stop hook (`hooks/vault-stop.sh`) will remind you at session end: review the session for recordable bugs/decisions, generate/append the daily log, and on Fridays prompt to tidy `pending_review`. The hook only **prompts** — you (Claude) perform the actual writes via the tools above, after user confirmation.

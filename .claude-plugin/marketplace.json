@@ -1,11 +1,11 @@
 {
-  "name": "vault-experience-marketplace",
+  "name": "memorant-marketplace",
   "owner": {
     "name": "starme"
   },
   "plugins": [
     {
-      "name": "vault-experience",
+      "name": "memorant",
       "source": "."
     }
   ]
