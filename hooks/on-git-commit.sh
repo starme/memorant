@@ -112,10 +112,14 @@ else
 fi
 
 # --- mechanical evidence: grep the session transcript for debugging keywords ---
-# Reads VAULT_SESSION_TRANSCRIPT (a JSONL transcript path, if available).
-# Reports RAW matched lines only — never interprets whether a hit is a real
-# wrong-path (that is the LLM's job, per Flow D). Capped at 20 lines / 4000 chars.
-TRANS="${VAULT_SESSION_TRANSCRIPT:-}"
+# Reads `transcript_path` from the stdin JSON (official hook input field — the
+# session's conversation JSONL). Reports RAW matched lines only — never interprets
+# whether a hit is a real wrong-path (that is the LLM's job, per Flow D). Capped
+# at 20 lines / 4000 chars.
+# Caveat (per Claude Code docs): the transcript is written asynchronously and may
+# lag the current turn — it may not yet contain the just-run git commit, but it
+# WILL contain prior debugging turns, which is what we scan for.
+TRANS="$(printf '%s' "$PAYLOAD" | grep -o '"transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"//; s/"$//')"
 EVIDENCE_BLOCK=""
 if [[ -z "$TRANS" || ! -f "$TRANS" ]]; then
   EVIDENCE_BLOCK="mechanical_evidence: (transcript unavailable — no script evidence)"
@@ -151,7 +155,7 @@ CTX_FILE="$(mktemp)"
   printf '\nIf this fixes a non-trivial bug, evaluate against the vault bug threshold (Flow B); corroborate with the mechanical_evidence below — never assert a debugging fact you cannot quote. Ask the user before recording.\n'
 } > "$CTX_FILE"
 
-# --- emit PostToolUse JSON (files/mechanical_evidence appended before this in later tasks) ---
+# --- emit PostToolUse JSON ---
 CTX="$(cat "$CTX_FILE")"
 rm -f "$CTX_FILE"
 CTX_ESC="${CTX//\\/\\\\}"

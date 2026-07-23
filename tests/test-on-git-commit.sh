@@ -122,8 +122,8 @@ cat > "$TMPTRANS" <<'JSONL'
 {"role":"user","content":"now it failed differently"}
 {"role":"assistant","content":"that worked"}
 JSONL
-STDIN='{"tool_input":{"command":"git commit -m \"fix: rate limit\""},"tool_response":{"stdout":"[main hit0001] fix: rate limit\n 1 file changed"}}'
-OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && VAULT_SESSION_TRANSCRIPT="$TMPTRANS" bash "$HOOK") || true)
+STDIN="{\"transcript_path\":\"$TMPTRANS\",\"tool_input\":{\"command\":\"git commit -m \\\"fix: rate limit\\\"\"},\"tool_response\":{\"stdout\":\"[main hit0001] fix: rate limit\\n 1 file changed\"}}"
+OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && bash "$HOOK") || true)
 assert_contains "$OUT" 'mechanical_evidence:'
 assert_contains "$OUT" 'NullPointerException'
 assert_contains "$OUT" 'retry'
@@ -135,7 +135,7 @@ TMPREPO="$(mktemp -d)"
 ( cd "$TMPREPO"; git init -q; git config user.email t@t.t; git config user.name t
   echo a > a.txt && git add a.txt && git commit -q -m "fix: x" )
 STDIN='{"tool_input":{"command":"git commit -m \"fix: x\""},"tool_response":{"stdout":"[main non0002] fix: x\n 1 file changed"}}'
-OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && env -u VAULT_SESSION_TRANSCRIPT bash "$HOOK") || true)
+OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && bash "$HOOK") || true)
 assert_contains "$OUT" 'mechanical_evidence: (transcript unavailable'
 rm -rf "$TMPREPO"
 
@@ -145,8 +145,8 @@ TMPREPO="$(mktemp -d)"; TMPTRANS="$(mktemp)"
 ( cd "$TMPREPO"; git init -q; git config user.email t@t.t; git config user.name t
   echo a > a.txt && git add a.txt && git commit -q -m "fix: y" )
 printf 'hello world\nthis is fine\n' > "$TMPTRANS"
-STDIN='{"tool_input":{"command":"git commit -m \"fix: y\""},"tool_response":{"stdout":"[main zero0003] fix: y\n 1 file changed"}}'
-OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && VAULT_SESSION_TRANSCRIPT="$TMPTRANS" bash "$HOOK") || true)
+STDIN="{\"transcript_path\":\"$TMPTRANS\",\"tool_input\":{\"command\":\"git commit -m \\\"fix: y\\\"\"},\"tool_response\":{\"stdout\":\"[main zero0003] fix: y\\n 1 file changed\"}}"
+OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && bash "$HOOK") || true)
 assert_contains "$OUT" 'mechanical_evidence: 0 keyword hits'
 rm -rf "$TMPREPO" "$TMPTRANS"
 

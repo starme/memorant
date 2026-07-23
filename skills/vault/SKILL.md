@@ -126,8 +126,11 @@ Daily is the inbox; bugs/snippets/arch are the permanent home. Promote in three 
 - **Never silent.** Whether qualified or not, the verdict + its script-evidence basis (or the explicit `UNVERIFIED-BY-SCRIPT` tag) must be visible to the user.
 - **Never auto-write.** Writing to the vault is writing to Obsidian — outward-facing, requires user confirmation (user red line). Always preview + ask first.
 - The **bug threshold** is Flow B's; the **recording procedure** is Flow B's (dedup → collect required fields → `vault_create_entry`); if a field is missing, ask the user rather than writing an incomplete entry.
-- The `mechanical_evidence` scan depends on `VAULT_SESSION_TRANSCRIPT` being set; if it is not, the block reports `(transcript unavailable)` and you proceed on the lean + your own context read only — but with every claim tagged `UNVERIFIED-BY-SCRIPT` (no fabrication).
+- The `mechanical_evidence` scan reads `transcript_path` from the hook's stdin (the official session-transcript JSONL path); if it is absent, the block reports `(transcript unavailable)` and you proceed on the lean + your own context read only — but with every claim tagged `UNVERIFIED-BY-SCRIPT` (no fabrication).
 - This flow does **not** replace the Stop hook — daily-log generation still goes through the Stop hook at session end. Flow D is specifically the bug-recording trigger anchored on `git commit`.
+
+### Limitation: transcript scan may lag the current turn
+The `mechanical_evidence` scan reads the session transcript via the hook's `transcript_path` stdin field (officially supported). Per Claude Code docs, the transcript is written asynchronously and may not yet contain the just-run `git commit` tool call when the PostToolUse hook fires — but it WILL contain the prior debugging turns, which is exactly what the scan targets (wrong-paths tried, errors hit before the fix). So the async lag does not weaken the evidence for this use case. If `transcript_path` is absent, the block reads `(transcript unavailable)` and Flow D proceeds on the lean + Claude's context read only (all claims tagged `UNVERIFIED-BY-SCRIPT`).
 
 ---
 
