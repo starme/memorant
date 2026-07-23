@@ -117,9 +117,19 @@ def resolve_safe_path(rel_path: str) -> str:
 
 
 def _slug(text: str, max_len: int = 40) -> str:
-    """Lowercase ASCII slug, non-alphanumerics -> '-'."""
-    slug = re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
-    return slug[:max_len] or "untitled"
+    """Filename-safe slug preserving Unicode letters/digits (CJK stays readable).
+
+    Why: titles are often Chinese; the old ASCII-only whitelist stripped every
+    CJK char to empty and fell back to the uninformative 'untitled'. Treat
+    filesystem-illegal chars and runs of non-word chars as separators instead,
+    so '限流治理：漏斗模型' -> '限流治理-漏斗模型' and 'PHP/Laravel' -> 'php-laravel'.
+    """
+    # Filesystem-illegal chars + control chars act as separators (not deleted),
+    # so 'PHP/Laravel' -> 'php-laravel' not 'PHPLaravel'.
+    text = re.sub(r"[\\/:*?\"<>|\x00-\x1f]+", "-", text)
+    # Runs of non-word chars (punctuation, spaces, CJK punctuation like ：) -> '-'.
+    s = re.sub(r"[^\w]+", "-", text, flags=re.UNICODE).strip("-").lower()
+    return s[:max_len] or "untitled"
 
 
 def filename_for(
