@@ -161,5 +161,10 @@ rm -f "$CTX_FILE"
 CTX_ESC="${CTX//\\/\\\\}"
 CTX_ESC="${CTX_ESC//\"/\\\"}"
 CTX_ESC="${CTX_ESC//$'\n'/\\n}"
+# Escape control characters per JSON spec (RFC 8259): TAB, CR, and any other
+# U+0000-U+001F that would otherwise produce invalid JSON. Transcript lines
+# routinely contain tabs (code/indentation) and CR (CRLF pastes).
+CTX_ESC="${CTX_ESC//$'\t'/\\t}"
+CTX_ESC="${CTX_ESC//$'\r'/\\r}"
 printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"%s"}}\n' "$CTX_ESC"
 exit 0

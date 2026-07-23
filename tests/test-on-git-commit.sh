@@ -16,12 +16,6 @@ run_hook() {
   printf '%s' "$1" | bash "$HOOK"
 }
 
-# run_hook_with_transcript <stdin-json> <transcript-file> — sets
-# VAULT_SESSION_TRANSCRIPT before invoking the hook.
-run_hook_with_transcript() {
-  VAULT_SESSION_TRANSCRIPT="$2" bash "$HOOK" <<<"$1"
-}
-
 assert_contains() {
   if printf '%s' "$1" | grep -F -- "$2" >/dev/null 2>&1; then
     echo "  ok: contains '$2'"
@@ -148,6 +142,27 @@ printf 'hello world\nthis is fine\n' > "$TMPTRANS"
 STDIN="{\"transcript_path\":\"$TMPTRANS\",\"tool_input\":{\"command\":\"git commit -m \\\"fix: y\\\"\"},\"tool_response\":{\"stdout\":\"[main zero0003] fix: y\\n 1 file changed\"}}"
 OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && bash "$HOOK") || true)
 assert_contains "$OUT" 'mechanical_evidence: 0 keyword hits'
+rm -rf "$TMPREPO" "$TMPTRANS"
+
+# Test 11: control chars in transcript → output still valid JSON.
+echo "Test 11: control chars (tab/CR) don't break JSON"
+TMPREPO="$(mktemp -d)"; TMPTRANS="$(mktemp)"
+( cd "$TMPREPO"; git init -q; git config user.email t@t.t; git config user.name t
+  echo a > a.txt && git add a.txt && git commit -q -m "init"
+  echo b > a.txt && git add a.txt && git commit -q -m "fix: ctrl chars" )
+printf 'error\tsome tabbed line\r\nretry another\r\n' > "$TMPTRANS"
+STDIN="{\"transcript_path\":\"$TMPTRANS\",\"tool_input\":{\"command\":\"git commit -m \\\"fix: ctrl chars\\\"\"},\"tool_response\":{\"stdout\":\"[main ctrl001] fix: ctrl chars\n 1 file changed\"}}"
+OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && bash "$HOOK") || true)
+# Assert it's valid JSON by parsing with python3.
+if printf '%s' "$OUT" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+  echo "  ok: output is valid JSON despite control chars"
+else
+  echo "  FAIL: output is not valid JSON:"
+  printf '%s\n' "$OUT" | sed 's/^/  /'
+  FAILS=$((FAILS + 1))
+fi
+# And confirm the evidence still surfaced (the tab line still listed as a raw hit).
+assert_contains "$OUT" 'some tabbed line'
 rm -rf "$TMPREPO" "$TMPTRANS"
 
 echo "----"
