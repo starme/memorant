@@ -123,6 +123,8 @@ async def vault_create_entry(
     For arch: a global sequence number is auto-assigned (do not pass one).
     For bug/snippet: pass `stack` — either as the top-level param, or in
     `frontmatter`, or both (they must agree). For daily: `project` may be a list.
+    `project` follows the same dual-pass rule: pass it top-level, in frontmatter,
+    or both (must agree) — arch filenames use it.
     Required frontmatter fields vary by type — the validator reports which are
     missing. Writes are refused if the path escapes $VAULT_ROOT or the file
     already exists.
@@ -133,8 +135,6 @@ async def vault_create_entry(
         # validation failure doesn't burn a sequence number.
         fm = dict(frontmatter)
         fm["date"] = the_date
-        if project is not None:
-            fm["project"] = project
         # `stack` is both a top-level param (used for the filename) and a
         # required frontmatter field (used for validation). Accept either one
         # so callers don't have to pass it twice — but reject a mismatch instead
@@ -147,6 +147,23 @@ async def vault_create_entry(
         elif stack is not None and fm_stack is not None and list(stack) != list(fm_stack):
             raise ValueError(
                 f"stack mismatch: top-level {stack!r} vs frontmatter {fm_stack!r}; pass one or make them equal"
+            )
+        # `project` has the same dual-pass problem: it's a top-level param (arch
+        # filename uses it) and may also live in frontmatter. Without sync, a
+        # caller passing project only in frontmatter gets filename fallback
+        # 'misc'. Same rule — accept either, reject a mismatch.
+        fm_project = fm.get("project")
+        if project is not None and fm_project is None:
+            fm["project"] = project
+        elif project is None and fm_project is not None:
+            project = fm_project  # back-fill the filename param
+        elif (
+            project is not None
+            and fm_project is not None
+            and project != fm_project
+        ):
+            raise ValueError(
+                f"project mismatch: top-level {project!r} vs frontmatter {fm_project!r}; pass one or make them equal"
             )
         cleaned = _validate_and_serialize(type, fm, title)
 
