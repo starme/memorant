@@ -48,10 +48,16 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/memorant-hook.sh"
+          },
+          {
+            "type": "command",
+            "if": "Bash(git commit*)",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/on-git-commit.sh"
           }
         ]
       }

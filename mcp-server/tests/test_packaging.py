@@ -70,4 +70,10 @@ def test_plugin_registers_journal_observer_hooks() -> None:
             for entry in entries
             for hook in entry["hooks"]
         ]
-        assert commands == ["${CLAUDE_PLUGIN_ROOT}/hooks/memorant-hook.sh"]
+        if event == "PostToolUse":
+            assert commands == [
+                "${CLAUDE_PLUGIN_ROOT}/hooks/memorant-hook.sh",
+                "${CLAUDE_PLUGIN_ROOT}/hooks/on-git-commit.sh",
+            ]
+        else:
+            assert commands == ["${CLAUDE_PLUGIN_ROOT}/hooks/memorant-hook.sh"]

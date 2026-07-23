@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import frontmatter
+import yaml
 
 from .event_schema import Event, EventInput
 from .naming import resolve_safe_path, vault_root
@@ -23,7 +24,7 @@ _AUTH = re.compile(r"(?i)\bAuthorization\s*:\s*(?:Bearer\s+)?[^\s,;]+")
 _BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 _CREDENTIAL = re.compile(
     r"(?i)\b([A-Za-z0-9_-]*(?:secret|token|password|passwd|pwd|api[_-]?key"
-    r"|access[_-]?key|client[_-]?secret)[A-Za-z0-9_-]*)"
+    r"|access[_-]?key|client[_-]?secret|private[_-]?key|auth)[A-Za-z0-9_-]*)"
     r"(\s*[:=]\s*)([^\s,;\"']+|\"[^\"]*\"|'[^']*')"
 )
 _URL_CREDENTIAL = re.compile(r"(?i)(https?://[^:/\s]+:)[^@\s/]+(@)")
@@ -67,11 +68,12 @@ def _existing_by_hash(payload_hash: str) -> dict[str, Any] | None:
     for path in sorted((root / "journal").glob("**/*.md")):
         try:
             post = frontmatter.load(path)
-        except (OSError, TypeError):
-            continue
-        if post.get("payload_hash") == payload_hash:
+            if post.get("payload_hash") != payload_hash:
+                continue
             event = Event(**dict(post.metadata))
-            return _event_dict(event, path.relative_to(root).as_posix())
+        except (OSError, TypeError, UnicodeDecodeError, ValueError, yaml.YAMLError):
+            continue
+        return _event_dict(event, path.relative_to(root).as_posix())
     return None
 
 
@@ -107,7 +109,20 @@ def append_event(event_input: EventInput) -> dict[str, Any]:
                     temp.write(rendered)
                     temp.flush()
                     os.fsync(temp.fileno())
-                os.replace(temp_name, target)
+                for suffix in range(101):
+                    if suffix:
+                        candidate_rel = rel.removesuffix(".md") + f"-{suffix}.md"
+                        target = Path(resolve_safe_path(candidate_rel))
+                    else:
+                        candidate_rel = rel
+                    try:
+                        os.link(temp_name, target)
+                        rel = candidate_rel
+                        break
+                    except FileExistsError:
+                        continue
+                else:
+                    raise FileExistsError("journal target collision limit exceeded")
             finally:
                 if os.path.exists(temp_name):
                     os.unlink(temp_name)
@@ -123,7 +138,7 @@ def _referenced_event_ids() -> set[str]:
     for path in (root / "memories").glob("*.md"):
         try:
             values = frontmatter.load(path).get("source_event_ids", [])
-        except (OSError, TypeError):
+        except (OSError, TypeError, UnicodeDecodeError, ValueError, yaml.YAMLError):
             continue
         if isinstance(values, list):
             result.update(str(value) for value in values)
@@ -139,7 +154,13 @@ def list_pending_events(
     for path in sorted((root / "journal").glob("**/*.md")):
         try:
             event = Event(**dict(frontmatter.load(path).metadata))
-        except (OSError, TypeError, ValueError):
+        except (
+            OSError,
+            TypeError,
+            UnicodeDecodeError,
+            ValueError,
+            yaml.YAMLError,
+        ):
             continue
         if event.event_id in referenced:
             continue

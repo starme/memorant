@@ -1,12 +1,13 @@
 import asyncio
 import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 import frontmatter
 import pytest
 from pydantic import ValidationError
 
-from memorant_mcp.event_schema import EventInput
+from memorant_mcp.event_schema import Event, EventInput
 from memorant_mcp.journal import append_event, list_pending_events, redact_secrets
 from memorant_mcp.server import (
     memorant_append_event,
@@ -92,6 +93,10 @@ def test_redaction_falls_back_when_content_is_unsafe(unsafe: str) -> None:
         ("AWS_SECRET_ACCESS_KEY=aws-secret", "aws-secret"),
         ("GITHUB_TOKEN=github-secret", "github-secret"),
         ("OPENAI_API_KEY=openai-secret", "openai-secret"),
+        ("AUTH=auth-secret", "auth-secret"),
+        ("Auth: mixed-secret", "mixed-secret"),
+        ("private_key=underscore-secret", "underscore-secret"),
+        ("PRIVATE-KEY: dash-secret", "dash-secret"),
         ("https://alice:db-secret@example.com/database", "db-secret"),
     ],
 )
@@ -99,6 +104,18 @@ def test_redaction_covers_common_credentials(
     credential: str, secret_value: str
 ) -> None:
     assert secret_value not in redact_secrets(credential)
+
+
+def test_redaction_variants_never_reach_journal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    secrets = "AUTH=alpha private_key=beta PRIVATE-KEY: gamma"
+    created = append_event(EventInput(**{**BASE, "evidence_excerpt": secrets}))
+    stored = (tmp_path / created["path"]).read_text()
+    assert "alpha" not in stored
+    assert "beta" not in stored
+    assert "gamma" not in stored
 
 
 def test_pending_events_exclude_memory_references_and_sort(
@@ -147,3 +164,63 @@ def test_legacy_mutation_tools_cannot_change_journal_events(
     assert update_result.startswith("IMMUTABLE:")
     assert delete_result.startswith("IMMUTABLE:")
     assert path.read_text() == original
+
+
+def test_append_never_overwrites_colliding_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    fixed = Event(
+        **BASE,
+        event_id="a" * 32,
+        observed_at=datetime(2026, 7, 23, 12, 0, tzinfo=timezone.utc),
+        payload_hash="b" * 64,
+    )
+    monkeypatch.setattr(EventInput, "to_event", lambda self: fixed)
+    original_rel = (
+        "journal/2026/07/23/"
+        "20260723T120000000000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md"
+    )
+    original = tmp_path / original_rel
+    original.parent.mkdir(parents=True)
+    original.write_text("collision sentinel")
+
+    created = append_event(EventInput(**BASE))
+
+    assert original.read_text() == "collision sentinel"
+    assert created["path"] != original_rel
+    assert (tmp_path / created["path"]).is_file()
+
+
+def test_corrupt_journal_and_memory_are_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    journal = tmp_path / "journal"
+    memories = tmp_path / "memories"
+    journal.mkdir()
+    memories.mkdir()
+    (journal / "corrupt.md").write_text("---\npayload_hash: [\n---\n")
+    (memories / "corrupt.md").write_text("---\nsource_event_ids: [\n---\n")
+
+    created = append_event(EventInput(**BASE))
+    pending = list_pending_events()
+
+    assert (journal / "corrupt.md").read_text() == "---\npayload_hash: [\n---\n"
+    assert (memories / "corrupt.md").read_text() == "---\nsource_event_ids: [\n---\n"
+    assert [event["event_id"] for event in pending] == [created["event_id"]]
+
+
+def test_semantically_corrupt_matching_journal_does_not_block_append(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    payload_hash = EventInput(**BASE).to_event().payload_hash
+    corrupt = tmp_path / "journal" / "incomplete.md"
+    corrupt.parent.mkdir()
+    corrupt.write_text(f"---\npayload_hash: {payload_hash}\n---\n")
+
+    created = append_event(EventInput(**BASE))
+
+    assert created["path"] != "journal/incomplete.md"
+    assert corrupt.read_text() == f"---\npayload_hash: {payload_hash}\n---\n"

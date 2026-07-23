@@ -150,6 +150,30 @@ def test_server_keeps_legacy_tool_names() -> None:
     ]
 
 
+def test_append_event_tool_schema_exposes_enum_and_limits() -> None:
+    tools = asyncio.run(mcp.list_tools())
+    tool = next(item for item in tools if item.name == "memorant_append_event")
+    properties = tool.inputSchema["properties"]
+
+    event_type_ref = properties["event_type"]["$ref"].removeprefix("#/$defs/")
+    assert tool.inputSchema["$defs"][event_type_ref]["enum"] == [
+        "session.start",
+        "session.end",
+        "context.precompact",
+        "tool.failure",
+        "test.failure",
+        "test.success",
+        "git.commit",
+    ]
+    assert properties["session_id"]["minLength"] == 1
+    assert properties["session_id"]["maxLength"] == 256
+    assert properties["project"]["maxLength"] == 256
+    assert properties["source"]["maxLength"] == 128
+    assert properties["evidence_excerpt"]["anyOf"][0]["maxLength"] == 20_000
+    assert properties["tags"]["anyOf"][0]["maxItems"] == 32
+    assert properties["tags"]["anyOf"][0]["items"]["maxLength"] == 64
+
+
 @pytest.mark.parametrize("command", ["memorant-mcp", "vault-mcp"])
 def test_installed_cli_entrypoints_smoke(
     command: str, tmp_path: Path

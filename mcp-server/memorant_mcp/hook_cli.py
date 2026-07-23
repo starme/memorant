@@ -22,11 +22,6 @@ _TEST_COMMAND = re.compile(
     r"pnpm\s+(run\s+)?test|yarn\s+test|go\s+test|cargo\s+test)\b",
     re.IGNORECASE,
 )
-_FAILURE = re.compile(
-    r"\b(fail(?:ed|ure)?|error|exception|traceback|not ok)\b", re.IGNORECASE
-)
-
-
 def _text(value: Any, limit: int) -> str:
     return value[:limit] if isinstance(value, str) else ""
 
@@ -39,7 +34,9 @@ def _project(payload: dict[str, Any]) -> str:
     return Path(cwd).name[:256] if cwd else "unknown"
 
 
-def _post_tool_event(payload: dict[str, Any]) -> tuple[str, str, str] | None:
+def _post_tool_event(
+    payload: dict[str, Any], *, hook_failed: bool = False
+) -> tuple[str, str, str] | None:
     if payload.get("tool_name") != "Bash":
         return None
     tool_input = payload.get("tool_input")
@@ -48,10 +45,15 @@ def _post_tool_event(payload: dict[str, Any]) -> tuple[str, str, str] | None:
     stdout = _text(response.get("stdout"), 2048) if isinstance(response, dict) else ""
     stderr = _text(response.get("stderr"), 2048) if isinstance(response, dict) else ""
     evidence = "\n".join(part for part in (command, stdout, stderr) if part)
+    exit_code = response.get("exit_code") if isinstance(response, dict) else None
+    if exit_code is None:
+        exit_code = payload.get("exit_code")
+    structured_failure = isinstance(exit_code, int) and exit_code != 0
     if re.search(r"(^|\s)git\s+commit\b", command):
-        return "git.commit", "success", evidence
+        outcome = "failure" if hook_failed or structured_failure else "success"
+        return "git.commit", outcome, evidence
     if _TEST_COMMAND.search(command):
-        failed = bool(_FAILURE.search(stdout + "\n" + stderr))
+        failed = hook_failed or structured_failure
         return ("test.failure" if failed else "test.success"), (
             "failure" if failed else "success"
         ), evidence
@@ -74,11 +76,19 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
         return {}
     elif hook_name == "PostToolUseFailure":
         outcome = "failure"
+        selected = _post_tool_event(payload, hook_failed=True)
+        if selected is not None and selected[0] == "test.failure":
+            event_type, outcome, command_evidence = selected
+        else:
+            command_evidence = ""
         evidence = _text(payload.get("error"), 4096)
         if not evidence:
             response = payload.get("tool_response")
             if isinstance(response, dict):
                 evidence = _text(response.get("stderr"), 4096)
+        evidence = "\n".join(
+            part for part in (command_evidence, evidence) if part
+        )
     else:
         evidence = _text(payload.get("reason"), 1024) or _text(
             payload.get("error"), 1024
@@ -96,6 +106,8 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
             tags=["hook", hook_name],
         )
     )
+    if hook_name in {"PreCompact", "SessionEnd"}:
+        return {}
     return {
         "hookSpecificOutput": {
             "hookEventName": hook_name,

@@ -18,12 +18,13 @@ from __future__ import annotations
 
 import os
 from datetime import date
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 import frontmatter
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
-from .event_schema import EventInput
+from .event_schema import EventInput, EventType
 from .journal import append_event, list_pending_events
 from .naming import (
     ConflictError,
@@ -339,14 +340,17 @@ async def vault_get_recent(dir: str, limit: int = 10) -> str:
 
 @mcp.tool(name="memorant_append_event")
 async def memorant_append_event(
-    event_type: str,
-    session_id: str,
-    project: str,
-    source: str,
-    tool_name: Optional[str] = None,
-    outcome: Optional[str] = None,
-    evidence_excerpt: Optional[str] = None,
-    tags: Optional[list[str]] = None,
+    event_type: EventType,
+    session_id: Annotated[str, Field(min_length=1, max_length=256)],
+    project: Annotated[str, Field(min_length=1, max_length=256)],
+    source: Annotated[str, Field(min_length=1, max_length=128)],
+    tool_name: Annotated[Optional[str], Field(max_length=128)] = None,
+    outcome: Annotated[Optional[str], Field(max_length=64)] = None,
+    evidence_excerpt: Annotated[Optional[str], Field(max_length=20_000)] = None,
+    tags: Annotated[
+        Optional[list[Annotated[str, Field(min_length=1, max_length=64)]]],
+        Field(max_length=32),
+    ] = None,
 ) -> dict[str, Any]:
     """Append a strict, redacted event to the immutable local journal."""
     try:

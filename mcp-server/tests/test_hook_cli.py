@@ -27,8 +27,6 @@ def run_cli(tmp_path: Path, payload: dict | str) -> tuple[subprocess.CompletedPr
     ("hook_event_name", "event_type"),
     [
         ("SessionStart", "session.start"),
-        ("SessionEnd", "session.end"),
-        ("PreCompact", "context.precompact"),
         ("PostToolUseFailure", "tool.failure"),
     ],
 )
@@ -59,7 +57,7 @@ def test_maps_lifecycle_and_failure_events(
     [
         ("git commit -m 'fix: safe'", "[main abc1234] fix: safe", "git.commit"),
         ("pytest -q", "2 passed", "test.success"),
-        ("npm test", "FAIL src/a.test.js", "test.failure"),
+        ("npm test", "0 errors", "test.success"),
     ],
 )
 def test_maps_selected_successful_post_tool_use(
@@ -79,6 +77,57 @@ def test_maps_selected_successful_post_tool_use(
     json.loads(result.stdout)
     assert len(files) == 1
     assert f"event_type: {event_type}" in files[0].read_text()
+
+
+def test_failed_test_hook_maps_to_test_failure(tmp_path: Path) -> None:
+    result, files = run_cli(
+        tmp_path,
+        {
+            "hook_event_name": "PostToolUseFailure",
+            "session_id": "s1",
+            "cwd": "/work/project",
+            "tool_name": "Bash",
+            "tool_input": {"command": "pytest -q"},
+            "tool_response": {"stderr": "collection interrupted"},
+        },
+    )
+    json.loads(result.stdout)
+    assert len(files) == 1
+    assert "event_type: test.failure" in files[0].read_text()
+    assert "outcome: failure" in files[0].read_text()
+
+
+def test_structured_exit_code_overrides_post_tool_success(tmp_path: Path) -> None:
+    result, files = run_cli(
+        tmp_path,
+        {
+            "hook_event_name": "PostToolUse",
+            "session_id": "s1",
+            "cwd": "/work/project",
+            "tool_name": "Bash",
+            "tool_input": {"command": "pytest -q"},
+            "tool_response": {"stdout": "0 errors", "exit_code": 1},
+        },
+    )
+    json.loads(result.stdout)
+    assert "event_type: test.failure" in files[0].read_text()
+    assert "outcome: failure" in files[0].read_text()
+
+
+@pytest.mark.parametrize("hook_event_name", ["PreCompact", "SessionEnd"])
+def test_events_without_output_contract_write_then_return_empty_json(
+    tmp_path: Path, hook_event_name: str
+) -> None:
+    result, files = run_cli(
+        tmp_path,
+        {
+            "hook_event_name": hook_event_name,
+            "session_id": "s1",
+            "cwd": "/work/project",
+        },
+    )
+    assert json.loads(result.stdout) == {}
+    assert len(files) == 1
 
 
 @pytest.mark.parametrize(
