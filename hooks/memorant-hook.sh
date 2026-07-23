@@ -13,21 +13,12 @@ cleanup() { rm -f "$INPUT" "$OUTPUT"; }
 trap cleanup EXIT
 cat > "$INPUT" 2>/dev/null || emit_empty
 
-if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" \
-  && -x "${CLAUDE_PLUGIN_ROOT}/mcp-server/.venv/bin/memorant-hook" ]]; then
-  CMD=("${CLAUDE_PLUGIN_ROOT}/mcp-server/.venv/bin/memorant-hook")
-elif command -v memorant-hook >/dev/null 2>&1; then
-  CMD=(memorant-hook)
-elif [[ -n "${CLAUDE_PLUGIN_ROOT:-}" \
-  && -f "${CLAUDE_PLUGIN_ROOT}/mcp-server/pyproject.toml" ]] \
-  && command -v uv >/dev/null 2>&1; then
-  CMD=(uv run --quiet --project "${CLAUDE_PLUGIN_ROOT}/mcp-server" memorant-hook)
-else
-  emit_empty
-fi
-
 command -v python3 >/dev/null 2>&1 || emit_empty
-python3 - "${MEMORANT_HOOK_TIMEOUT_SECONDS:-5}" "$INPUT" "$OUTPUT" \
+HOOK_CLI="${CLAUDE_PLUGIN_ROOT:-}/mcp-server/memorant_mcp/hook_cli.py"
+[[ -f "$HOOK_CLI" ]] || emit_empty
+CMD=(python3 -B -S "$HOOK_CLI")
+
+python3 - "${MEMORANT_HOOK_TIMEOUT_SECONDS:-1.0}" "$INPUT" "$OUTPUT" \
   "${CMD[@]}" <<'PY' || emit_empty
 import subprocess
 import sys

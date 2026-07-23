@@ -118,6 +118,19 @@ def test_redaction_variants_never_reach_journal(
     assert "gamma" not in stored
 
 
+def test_auth_redaction_respects_key_boundaries_and_quotes() -> None:
+    text = (
+        'author="Tal" authority=local auth="alpha" '
+        "AUTH:'beta' Auth = gamma"
+    )
+    redacted = redact_secrets(text)
+    assert 'author="Tal"' in redacted
+    assert "authority=local" in redacted
+    assert "alpha" not in redacted
+    assert "beta" not in redacted
+    assert "gamma" not in redacted
+
+
 def test_pending_events_exclude_memory_references_and_sort(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

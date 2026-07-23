@@ -8,8 +8,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .event_schema import EventInput
-from .journal import append_event
+try:
+    from .hook_core import append_hook_event
+except ImportError:  # Direct plugin-source execution by the shell shim.
+    from hook_core import append_hook_event
 
 _EVENT_MAP = {
     "SessionStart": "session.start",
@@ -94,17 +96,17 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
             payload.get("error"), 1024
         )
 
-    append_event(
-        EventInput(
-            event_type=event_type,
-            session_id=_text(payload.get("session_id"), 256) or "unknown",
-            project=_project(payload),
-            source="claude-code-hook",
-            tool_name=_text(payload.get("tool_name"), 128) or None,
-            outcome=outcome,
-            evidence_excerpt=evidence or None,
-            tags=["hook", hook_name],
-        )
+    append_hook_event(
+        {
+            "event_type": event_type,
+            "session_id": _text(payload.get("session_id"), 256) or "unknown",
+            "project": _project(payload),
+            "source": "claude-code-hook",
+            "tool_name": _text(payload.get("tool_name"), 128) or None,
+            "outcome": outcome,
+            "evidence_excerpt": evidence or None,
+            "tags": ["hook", hook_name],
+        }
     )
     if hook_name in {"PreCompact", "SessionEnd"}:
         return {}
