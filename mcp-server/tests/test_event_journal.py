@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from memorant_mcp.event_schema import Event, EventInput
+from memorant_mcp.hook_core import append_event_data
 from memorant_mcp.journal import append_event, list_pending_events, redact_secrets
 from memorant_mcp.server import (
     memorant_append_event,
@@ -205,6 +207,68 @@ def test_append_never_overwrites_colliding_target(
     assert (tmp_path / created["path"]).is_file()
 
 
+@pytest.mark.parametrize("symlink_level", ["journal", "date"])
+def test_append_rejects_symlink_escape_without_external_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, symlink_level: str
+) -> None:
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    monkeypatch.setenv("MEMORANT_ROOT", str(root))
+    if symlink_level == "journal":
+        (root / "journal").symlink_to(outside, target_is_directory=True)
+    else:
+        today = datetime.now(timezone.utc)
+        parent = root / f"journal/{today:%Y/%m}"
+        parent.mkdir(parents=True)
+        (parent / f"{today:%d}").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises((OSError, ValueError)):
+        append_event(EventInput(**BASE))
+
+    assert list(outside.iterdir()) == []
+
+
+def test_frontmatter_json_scalars_roundtrip_without_yaml_injection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    project = "project\n---\noutcome: injected"
+    tags = ["null", "tag\n---\nsource: injected"]
+    created = append_event(
+        EventInput(
+            **{
+                **BASE,
+                "project": project,
+                "outcome": "null",
+                "tags": tags,
+            }
+        )
+    )
+
+    post = frontmatter.load(tmp_path / created["path"])
+    pending = list_pending_events()
+    assert post["project"] == project
+    assert post["outcome"] == "null"
+    assert post["tags"] == tags
+    assert pending[0]["project"] == project
+    assert pending[0]["outcome"] == "null"
+    assert pending[0]["tags"] == tags
+
+
+def test_stdlib_writer_rejects_invalid_fixed_fields_before_writing(
+    tmp_path: Path,
+) -> None:
+    event = EventInput(**BASE).to_event().model_dump(mode="json")
+    event["event_id"] = "bad\n---\nproject: injected"
+
+    with pytest.raises(ValueError):
+        append_event_data(event, root=str(tmp_path))
+
+    assert not (tmp_path / "journal").exists()
+
+
 def test_corrupt_journal_and_memory_are_skipped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -237,3 +301,61 @@ def test_semantically_corrupt_matching_journal_does_not_block_append(
 
     assert created["path"] != "journal/incomplete.md"
     assert corrupt.read_text() == f"---\npayload_hash: {payload_hash}\n---\n"
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("event_id", "not-an-id"),
+        ("event_type", "poison.event"),
+        ("observed_at", "not-a-time"),
+        ("session_id", 123),
+        ("project", None),
+        ("source", ["wrong"]),
+        ("tags", "not-a-list"),
+    ],
+)
+def test_same_hash_poisoned_event_is_never_returned(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    bad_value: object,
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    valid = EventInput(**BASE).to_event().model_dump(mode="json")
+    valid[field] = bad_value
+    corrupt = tmp_path / "journal" / f"poison-{field}.md"
+    corrupt.parent.mkdir()
+    lines = "\n".join(
+        f"{key}: {json.dumps(value, ensure_ascii=False)}"
+        for key, value in valid.items()
+    )
+    original = f"---\n{lines}\n---\n"
+    corrupt.write_text(original)
+
+    created = append_event(EventInput(**BASE))
+
+    assert created["path"] != f"journal/poison-{field}.md"
+    assert corrupt.read_text() == original
+
+
+def test_valid_legacy_yaml_event_remains_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    event = EventInput(**BASE).to_event()
+    legacy = tmp_path / "journal" / "legacy.md"
+    legacy.parent.mkdir()
+    legacy.write_text(
+        frontmatter.dumps(
+            frontmatter.Post(
+                "# tool.failure\n",
+                **event.model_dump(mode="json"),
+            )
+        )
+    )
+
+    created = append_event(EventInput(**BASE))
+
+    assert created["path"] == "journal/legacy.md"
+    assert len(list((tmp_path / "journal").glob("*.md"))) == 1

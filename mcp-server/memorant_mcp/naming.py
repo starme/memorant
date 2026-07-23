@@ -12,6 +12,7 @@ import os
 import re
 from datetime import date
 
+from .hook_core import discover_root
 from .schema import EntryType
 
 
@@ -23,90 +24,19 @@ class ConflictError(Exception):
     """Raised when a target file already exists."""
 
 
-def _read_root_from(path: str, *, allow_vault_root: bool = False) -> str | None:
-    """Read a root setting from a local Markdown file's frontmatter."""
-    try:
-        with open(path, encoding="utf-8") as f:
-            content = f.read()
-    except OSError:
-        return None
-    if not content.startswith("---"):
-        return None
-    end = content.find("\n---", 3)
-    if end == -1:
-        return None
-    fm = content[3:end]
-    values: dict[str, str] = {}
-    for line in fm.splitlines():
-        key, separator, value = line.strip().partition(":")
-        normalized_key = key.strip().lower()
-        if separator and (
-            normalized_key == "root"
-            or (allow_vault_root and normalized_key == "vault_root")
-        ):
-            value = value.strip()
-            if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
-                value = value[1:-1]
-            if value:
-                values[normalized_key] = value
-    return values.get("root") or values.get("vault_root")
-
-
-def _find_local(filename: str) -> str | None:
-    """Find a root value from a `.claude/<name>.local.md` settings file.
-
-    Search order:
-      1. ~/.claude/<name>.local.md  (user-level — checked first so a global
-         setting works regardless of CWD; the MCP server's CWD is often ~/.claude
-         itself, where the project-level walk below would miss it)
-      2. walk up from CWD looking for .claude/<name>.local.md (project-level)
-
-    Returns None if neither exists.
-    """
-    home = os.path.expanduser("~")
-    allow_vault_root = filename == "vault.local.md"
-    # 1. user-level config
-    user_cfg = os.path.join(home, ".claude", filename)
-    if os.path.isfile(user_cfg):
-        val = _read_root_from(user_cfg, allow_vault_root=allow_vault_root)
-        if val:
-            return val
-    # 2. project-level walk-up from CWD
-    cwd = os.getcwd()
-    while True:
-        candidate = os.path.join(cwd, ".claude", filename)
-        if os.path.isfile(candidate):
-            val = _read_root_from(candidate, allow_vault_root=allow_vault_root)
-            if val:
-                return val
-        if os.path.realpath(cwd) == os.path.realpath(home):
-            break
-        parent = os.path.dirname(cwd)
-        if parent == cwd:
-            break
-        cwd = parent
-    return None
-
-
 def vault_root() -> str:
     """Resolve the Memorant root while preserving Vault compatibility.
 
     Priority: MEMORANT_ROOT > memorant.local.md > VAULT_ROOT > vault.local.md.
     """
-    root = os.environ.get("MEMORANT_ROOT", "").strip()
-    if not root:
-        root = (_find_local("memorant.local.md") or "").strip()
-    if not root:
-        root = os.environ.get("VAULT_ROOT", "").strip()
-    if not root:
-        root = (_find_local("vault.local.md") or "").strip()
-    if not root:
+    try:
+        return discover_root()
+    except RuntimeError:
         raise RuntimeError(
             "MEMORANT_ROOT is not set. Configure MEMORANT_ROOT or "
             ".claude/memorant.local.md; legacy VAULT_ROOT and "
             ".claude/vault.local.md remain supported."
         )
-    return os.path.realpath(root)
 
 
 def resolve_safe_path(rel_path: str) -> str:

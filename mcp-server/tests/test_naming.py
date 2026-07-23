@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from memorant_mcp.hook_core import discover_root
 from memorant_mcp.naming import (
     PathForbiddenError,
     _slug,
@@ -92,6 +93,56 @@ def test_legacy_local_remains_supported(
     monkeypatch.delenv("VAULT_ROOT", raising=False)
 
     assert vault_root() == str(vault_config.resolve())
+
+
+def test_hook_and_server_share_exact_root_priority_matrix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    memorant_env = tmp_path / "memorant-env"
+    memorant_config = tmp_path / "memorant-config"
+    vault_env = tmp_path / "vault-env"
+    vault_config = tmp_path / "vault-config"
+    memorant_file = tmp_path / ".claude" / "memorant.local.md"
+    vault_file = tmp_path / ".claude" / "vault.local.md"
+    _write_config(memorant_file, memorant_config)
+    vault_file.write_text(
+        f"---\nVAULT_ROOT: {vault_config}\n---\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("MEMORANT_ROOT", str(memorant_env))
+    monkeypatch.setenv("VAULT_ROOT", str(vault_env))
+
+    assert discover_root() == vault_root() == str(memorant_env.resolve())
+
+    monkeypatch.delenv("MEMORANT_ROOT")
+    assert discover_root() == vault_root() == str(memorant_config.resolve())
+
+    memorant_file.unlink()
+    assert discover_root() == vault_root() == str(vault_env.resolve())
+
+    monkeypatch.delenv("VAULT_ROOT")
+    assert discover_root() == vault_root() == str(vault_config.resolve())
+
+
+def test_vault_local_prefers_root_over_legacy_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    preferred = tmp_path / "preferred"
+    legacy = tmp_path / "legacy"
+    config = tmp_path / ".claude" / "vault.local.md"
+    config.parent.mkdir()
+    config.write_text(
+        f"---\nVAULT_ROOT: {legacy}\nroot: {preferred}\n---\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("MEMORANT_ROOT", raising=False)
+    monkeypatch.delenv("VAULT_ROOT", raising=False)
+
+    assert discover_root() == vault_root() == str(preferred.resolve())
 
 
 def test_local_config_reads_only_frontmatter_root(

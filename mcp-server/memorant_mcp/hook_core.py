@@ -73,7 +73,7 @@ def _bounded_evidence(text: str | None) -> str:
     return safe[: MAX_EVIDENCE - 16] + "\n… [truncated]"
 
 
-def _read_local_root(path: Path) -> str | None:
+def _read_local_root(path: Path, *, allow_vault_root: bool = False) -> str | None:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -83,40 +83,54 @@ def _read_local_root(path: Path) -> str | None:
     end = text.find("\n---", 3)
     if end == -1:
         return None
+    values: dict[str, str] = {}
     for line in text[3:end].splitlines():
         key, separator, value = line.partition(":")
-        if separator and key.strip().lower() in {"root", "vault_root"}:
+        normalized = key.strip().lower()
+        if separator and (
+            normalized == "root"
+            or (allow_vault_root and normalized == "vault_root")
+        ):
             value = value.strip().strip("\"'")
             if value:
-                return value
+                values[normalized] = value
+    return values.get("root") or values.get("vault_root")
+
+
+def _find_local(filename: str) -> str | None:
+    home = Path.home()
+    user_config = home / ".claude" / filename
+    allow_vault_root = filename == "vault.local.md"
+    root = _read_local_root(user_config, allow_vault_root=allow_vault_root)
+    if root:
+        return root
+    current = Path.cwd()
+    while True:
+        root = _read_local_root(
+            current / ".claude" / filename,
+            allow_vault_root=allow_vault_root,
+        )
+        if root:
+            return root
+        if current.resolve() == home.resolve():
+            break
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
     return None
 
 
 def discover_root() -> str:
-    for name in ("MEMORANT_ROOT", "VAULT_ROOT"):
-        value = os.environ.get(name, "").strip()
-        if value:
-            return os.path.realpath(value)
-    home = Path.home()
-    candidates = [
-        home / ".claude" / "memorant.local.md",
-        home / ".claude" / "vault.local.md",
-    ]
-    current = Path.cwd()
-    while True:
-        candidates.extend(
-            [
-                current / ".claude" / "memorant.local.md",
-                current / ".claude" / "vault.local.md",
-            ]
-        )
-        if current == current.parent:
-            break
-        current = current.parent
-    for candidate in candidates:
-        root = _read_local_root(candidate)
-        if root:
-            return os.path.realpath(os.path.expanduser(root))
+    root = os.environ.get("MEMORANT_ROOT", "").strip()
+    if not root:
+        root = (_find_local("memorant.local.md") or "").strip()
+    if not root:
+        root = os.environ.get("VAULT_ROOT", "").strip()
+    if not root:
+        root = (_find_local("vault.local.md") or "").strip()
+    if root:
+        return os.path.realpath(os.path.expanduser(root))
     raise RuntimeError("MEMORANT_ROOT is not configured")
 
 
@@ -167,8 +181,14 @@ def build_event(data: dict[str, Any]) -> dict[str, Any]:
 def _yaml_scalar(key: str, value: Any) -> str:
     if value is None:
         return "null"
-    if key in {"event_id", "event_type", "outcome", "payload_hash"}:
+    if key in {"event_id", "event_type", "payload_hash"}:
         return str(value)
+    if (
+        isinstance(value, str)
+        and re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]*", value)
+        and value.lower() not in {"null", "true", "false", "yes", "no", "on", "off"}
+    ):
+        return value
     return json.dumps(value, ensure_ascii=False)
 
 
@@ -204,19 +224,34 @@ def _read_event(path: Path) -> dict[str, Any]:
     end = text.find("\n---", 3)
     if end == -1:
         raise ValueError("unterminated frontmatter")
+    def parse_scalar(raw: str) -> Any:
+        if raw == "null":
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return raw.strip("\"'")
+
     event: dict[str, Any] = {}
-    for line in text[3:end].splitlines():
+    lines = text[3:end].splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
         key, separator, raw = line.partition(":")
         if not separator:
+            index += 1
             continue
         raw = raw.strip()
-        if raw == "null":
-            value: Any = None
+        if not raw:
+            values: list[Any] = []
+            index += 1
+            while index < len(lines) and lines[index].startswith("- "):
+                values.append(parse_scalar(lines[index][2:].strip()))
+                index += 1
+            value: Any = values
         else:
-            try:
-                value = json.loads(raw)
-            except json.JSONDecodeError:
-                value = raw.strip("\"'")
+            value = parse_scalar(raw)
+            index += 1
         event[key.strip()] = value
     required = {
         "event_id",
@@ -236,22 +271,105 @@ def _read_event(path: Path) -> dict[str, Any]:
     return event
 
 
+def _validate_stored_event(
+    event: dict[str, Any],
+    payload_hash: str,
+    *,
+    evidence_limit: int = MAX_EVIDENCE,
+) -> None:
+    fixed_fields = {
+        "event_id",
+        "event_type",
+        "observed_at",
+        "session_id",
+        "project",
+        "source",
+        "tool_name",
+        "outcome",
+        "evidence_excerpt",
+        "payload_hash",
+        "tags",
+    }
+    if set(event) != fixed_fields:
+        raise ValueError("unexpected event fields")
+    if not isinstance(event["event_id"], str) or not re.fullmatch(
+        r"[0-9a-f]{32}", event["event_id"]
+    ):
+        raise ValueError("invalid event_id")
+    if event["event_type"] not in EVENT_TYPES:
+        raise ValueError("invalid event_type")
+    if not isinstance(event["observed_at"], str):
+        raise ValueError("invalid observed_at")
+    observed = datetime.fromisoformat(event["observed_at"].replace("Z", "+00:00"))
+    if observed.tzinfo is None:
+        raise ValueError("observed_at must be timezone-aware")
+    if (
+        not isinstance(event["payload_hash"], str)
+        or not re.fullmatch(r"[0-9a-f]{64}", event["payload_hash"])
+        or event["payload_hash"] != payload_hash
+    ):
+        raise ValueError("invalid payload_hash")
+    limits = {
+        "session_id": 256,
+        "project": 256,
+        "source": 128,
+        "tool_name": 128,
+        "outcome": 64,
+        "evidence_excerpt": evidence_limit,
+    }
+    for key, limit in limits.items():
+        value = event[key]
+        if key in {"tool_name", "outcome", "evidence_excerpt"} and value is None:
+            continue
+        if not isinstance(value, str) or len(value) > limit:
+            raise ValueError(f"invalid {key}")
+        if key in {"session_id", "project", "source"} and not value:
+            raise ValueError(f"invalid {key}")
+    tags = event["tags"]
+    if (
+        not isinstance(tags, list)
+        or len(tags) > 32
+        or any(not isinstance(tag, str) or not 1 <= len(tag) <= 64 for tag in tags)
+    ):
+        raise ValueError("invalid tags")
+
+
 def _existing_by_hash(journal: Path, payload_hash: str) -> tuple[Path, dict[str, Any]] | None:
     for path in sorted(journal.glob("**/*.md")):
         try:
             text = path.read_text(encoding="utf-8")
             match = _PAYLOAD_HASH.search(text)
             if match and match.group(1) == payload_hash:
-                return path, _read_event(path)
+                event = _read_event(path)
+                _validate_stored_event(event, payload_hash)
+                return path, event
         except (OSError, UnicodeDecodeError, ValueError):
             continue
     return None
 
 
+def _resolve_inside(root: Path, path: Path) -> Path:
+    resolved = path.resolve()
+    try:
+        inside = os.path.commonpath((str(root), str(resolved))) == str(root)
+    except ValueError:
+        inside = False
+    if not inside or resolved == root:
+        raise ValueError(f"path escapes MEMORANT_ROOT: {path}")
+    return resolved
+
+
 def append_event_data(event: dict[str, Any], *, root: str) -> dict[str, Any]:
-    root_path = Path(os.path.realpath(root))
-    journal = root_path / "journal"
-    journal.mkdir(parents=True, exist_ok=True)
+    payload_hash = event.get("payload_hash")
+    if not isinstance(payload_hash, str):
+        raise ValueError("invalid payload_hash")
+    _validate_stored_event(event, payload_hash, evidence_limit=20_000)
+    root_candidate = Path(root)
+    root_candidate.mkdir(parents=True, exist_ok=True)
+    root_path = root_candidate.resolve()
+    journal_candidate = root_path / "journal"
+    journal_candidate.mkdir(parents=True, exist_ok=True)
+    journal = _resolve_inside(root_path, journal_candidate)
     lock_path = journal / ".append.lock"
     with lock_path.open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -268,8 +386,9 @@ def append_event_data(event: dict[str, Any], *, root: str) -> dict[str, Any]:
                 f"{observed:%Y%m%dT%H%M%S%fZ}-{event['event_id']}.md"
             )
             rendered = _render_event(event)
-            target_dir = root_path / Path(base_rel).parent
-            target_dir.mkdir(parents=True, exist_ok=True)
+            target_dir_candidate = root_path / Path(base_rel).parent
+            target_dir_candidate.mkdir(parents=True, exist_ok=True)
+            target_dir = _resolve_inside(root_path, target_dir_candidate)
             fd, temp_name = tempfile.mkstemp(
                 prefix=f".{event['event_id']}-", suffix=".tmp", dir=target_dir
             )
@@ -284,12 +403,19 @@ def append_event_data(event: dict[str, Any], *, root: str) -> dict[str, Any]:
                         if not suffix
                         else base_rel.removesuffix(".md") + f"-{suffix}.md"
                     )
-                    target = root_path / rel
+                    target = target_dir / Path(rel).name
                     try:
                         os.link(temp_name, target)
+                        _resolve_inside(root_path, target)
                         return {**event, "path": rel}
                     except FileExistsError:
                         continue
+                    except ValueError:
+                        try:
+                            target.unlink()
+                        except OSError:
+                            pass
+                        raise
                 raise FileExistsError("journal target collision limit exceeded")
             finally:
                 if os.path.exists(temp_name):
