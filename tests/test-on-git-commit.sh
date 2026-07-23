@@ -52,5 +52,28 @@ else
   FAILS=$((FAILS + 1))
 fi
 
+# Test 2: fix commit → worth-recording lean + hash + message.
+echo "Test 2: fix commit yields worth-recording lean"
+STDIN='{"tool_input":{"command":"git commit -m \"fix: handle rate limit window reset\""},"tool_response":{"stdout":"[main abc1234] fix: handle rate limit window reset\n 2 files changed, 8 insertions(+)"}}'
+OUT=$(run_hook "$STDIN" || true)
+assert_contains "$OUT" 'hookEventName":"PostToolUse"'
+assert_contains "$OUT" 'git commit landed: abc1234'
+assert_contains "$OUT" 'message: fix: handle rate limit window reset'
+assert_contains "$OUT" 'initial_verdict: worth-recording (prefix: fix)'
+assert_contains "$OUT" 'never assert a debugging fact you cannot quote'
+
+# Test 3: chore commit → not-worth-recording lean; hash from bracket form.
+echo "Test 3: chore commit yields not-worth-recording lean"
+STDIN='{"tool_input":{"command":"git commit -m \"chore: bump version\""},"tool_response":{"stdout":"[feature/xyz def98765] chore: bump version\n 1 file changed"}}'
+OUT=$(run_hook "$STDIN" || true)
+assert_contains "$OUT" 'git commit landed: def98765'
+assert_contains "$OUT" 'initial_verdict: not-worth-recording (prefix: chore)'
+
+# Test 4: no-prefix / unknown message → unknown lean (not crash).
+echo "Test 4: no-prefix message yields unknown lean"
+STDIN='{"tool_input":{"command":"git commit -m \"just a note\""},"tool_response":{"stdout":"[main 111aaaa] just a note\n 1 file changed"}}'
+OUT=$(run_hook "$STDIN" || true)
+assert_contains "$OUT" 'initial_verdict: unknown (prefix: none)'
+
 echo "----"
 if [[ "$FAILS" -eq 0 ]]; then echo "ALL PASS"; exit 0; else echo "$FAILS FAIL(S)"; exit 1; fi
