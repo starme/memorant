@@ -81,12 +81,43 @@ case "$PREFIX" in
   *)                             LEAN="unknown"; PREFIX="${PREFIX:-none}" ;;
 esac
 
-# --- build additionalContext (files + mechanical_evidence added in later tasks) ---
+# --- changed-file list via git diff --name-only HEAD~1 ---
+# Runs in the user's cwd (where the commit happened). HEAD~1 may not exist
+# (first commit / shallow clone) — handle gracefully.
+FILES_RAW=""
+if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+  FILES_RAW="$(git diff --name-only HEAD~1 2>/dev/null || true)"
+fi
+
+MAX_FILES=50
+FILE_COUNT=$(printf '%s\n' "$FILES_RAW" | grep -c . || true)
+TRUNCATED=0
+if [[ "$FILE_COUNT" -gt "$MAX_FILES" ]]; then
+  TRUNCATED=$((FILE_COUNT - MAX_FILES))
+  FILES_RAW="$(printf '%s\n' "$FILES_RAW" | head -n "$MAX_FILES")"
+fi
+
+FILES_BLOCK=""
+if [[ -z "$FILES_RAW" ]]; then
+  FILES_BLOCK="files: (none — no parent commit or no changed files)"
+else
+  FILES_BLOCK="files:"
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    FILES_BLOCK="$FILES_BLOCK"$'\n'"- $f"
+  done <<< "$FILES_RAW"
+  if [[ "$TRUNCATED" -gt 0 ]]; then
+    FILES_BLOCK="$FILES_BLOCK"$'\n'"... ($TRUNCATED more)"
+  fi
+fi
+
+# --- build additionalContext (message + lean + files; mechanical_evidence next task) ---
 CTX_FILE="$(mktemp)"
 {
   printf 'git commit landed: %s\n' "$HASH"
   printf 'message: %s\n' "$MSG"
   printf 'initial_verdict: %s (prefix: %s)\n' "$LEAN" "$PREFIX"
+  printf '%s\n' "$FILES_BLOCK"
   printf '\nIf this fixes a non-trivial bug, evaluate against the vault bug threshold (Flow B); corroborate with the mechanical_evidence below — never assert a debugging fact you cannot quote. Ask the user before recording.\n'
 } > "$CTX_FILE"
 

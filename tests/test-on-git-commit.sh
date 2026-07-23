@@ -75,5 +75,40 @@ STDIN='{"tool_input":{"command":"git commit -m \"just a note\""},"tool_response"
 OUT=$(run_hook "$STDIN" || true)
 assert_contains "$OUT" 'initial_verdict: unknown (prefix: none)'
 
+# Test 5: changed-file list appears in output (temp git repo).
+echo "Test 5: files block lists changed files"
+TMPREPO="$(mktemp -d)"
+( cd "$TMPREPO"; git init -q; git config user.email t@t.t; git config user.name t
+  echo a > a.txt && git add a.txt && git commit -q -m "init"
+  echo b > b.txt && git add b.txt && git commit -q -m "fix: add b" )
+STDIN='{"tool_input":{"command":"git commit -m \"fix: add b\""},"tool_response":{"stdout":"[main zzz1111] fix: add b\n 1 file changed"}}'
+OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && bash "$HOOK") || true)
+assert_contains "$OUT" 'files:'
+assert_contains "$OUT" 'b.txt'
+rm -rf "$TMPREPO"
+
+# Test 6: first commit (no HEAD~1) → files placeholder, not an error.
+echo "Test 6: no-parent commit yields files placeholder"
+TMPREPO="$(mktemp -d)"
+( cd "$TMPREPO"; git init -q; git config user.email t@t.t; git config user.name t
+  echo a > a.txt && git add a.txt && git commit -q -m "init" )
+STDIN='{"tool_input":{"command":"git commit -m \"init\""},"tool_response":{"stdout":"[master aaa0000] init\n 1 file changed"}}'
+OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && bash "$HOOK") || true)
+assert_contains "$OUT" 'files:'
+assert_absent "$OUT" 'fatal:'
+rm -rf "$TMPREPO"
+
+# Test 7: >50 changed files → truncated + "... (N more)".
+echo "Test 7: file list truncated past 50"
+TMPREPO="$(mktemp -d)"
+( cd "$TMPREPO"; git init -q; git config user.email t@t.t; git config user.name t
+  echo seed > seed.txt && git add seed.txt && git commit -q -m "seed"
+  for i in $(seq 1 60); do echo "x$i" > "file$i.txt"; done
+  git add -A && git commit -q -m "bulk" )
+STDIN='{"tool_input":{"command":"git commit -m \"bulk\""},"tool_response":{"stdout":"[main bbb2222] bulk\n 60 files changed"}}'
+OUT=$(printf '%s' "$STDIN" | (cd "$TMPREPO" && bash "$HOOK") || true)
+assert_contains "$OUT" '... ('
+rm -rf "$TMPREPO"
+
 echo "----"
 if [[ "$FAILS" -eq 0 ]]; then echo "ALL PASS"; exit 0; else echo "$FAILS FAIL(S)"; exit 1; fi
