@@ -5,11 +5,13 @@ __pycache__/
 .venv/
 dist/
 build/
+/mcp-server/uv.lock
 
 # Editor
 .DS_Store
 .vscode/
 .idea/
 
-# Plugin local settings (contains user VAULT_ROOT path)
+# Plugin local settings (contain user knowledge-base paths)
+.claude/memorant.local.md
 .claude/vault.local.md

@@ -1,11 +1,41 @@
 {
-  "name": "vault-experience",
+  "name": "memorant",
   "version": "0.1.0",
-  "description": "Dev experience vault: auto-search/record bugs, snippets, daily logs, and ADRs to a local Obsidian vault across multiple projects.",
+  "description": "书童 · Memorant: Claude Code local long-term memory runtime with journal, A/B memories, and event-driven recall.",
   "author": {
     "name": "tal"
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/memorant-hook.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/memorant-hook.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/memorant-hook.sh"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -22,8 +52,32 @@
         "hooks": [
           {
             "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/memorant-hook.sh"
+          },
+          {
+            "type": "command",
             "if": "Bash(git commit*)",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/on-git-commit.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/memorant-hook.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/memorant-hook.sh"
           }
         ]
       }

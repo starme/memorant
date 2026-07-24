@@ -1,22 +1,29 @@
 ---
-name: vault
-description: Use when developing — search the dev experience vault for past bugs/snippets/ADRs before debugging or making tech choices, prompt to record non-trivial bugs/reusable snippets/architectural decisions after solving them, generate daily logs at session end, and promote daily "待升" leads into permanent bugs/snippets/ADR entries. Triggers on debugging, error messages, tech selection, "记到 vault", "vault", "经验库", daily summary, ADR.
+name: memorant
+description: Use when developing — search 书童 · Memorant for past bugs/snippets/ADRs before debugging or making tech choices, prompt to record non-trivial bugs/reusable snippets/architectural decisions after solving them, generate daily logs at session end, and promote daily "待升" leads into permanent bugs/snippets/ADR entries. Triggers on debugging, error messages, tech selection, "记到 memorant", "memorant", "vault", "经验库", daily summary, ADR.
 ---
 
-# Vault Experience Orchestrator
+# 书童 · Memorant Orchestrator
 
-Orchestrates the `vault_*` MCP tools into three flows: **search before acting**, **record after solving**, **promote daily leads**. The MCP server handles atomic file I/O + schema validation; this skill decides *when* to search, *whether* to record, and *where* to migrate.
+Orchestrates Memorant MCP tools into seven flows: **Recall**, **Capture** (legacy vault), **Promote** (daily leads), **Commit**, **Distill**, **Trust Route**, and **Feedback**. Hooks capture deterministic journal events; you (host Claude) distill meaning into A/B Memory Envelopes; MCP validates, ranks, and promotes.
 
-## Vault layout (do not deviate)
+**Two write tracks (do not conflate):**
+- **Memorant memories** (`memorant_write_memory`, Flows E/F): A/B **auto-write** — no per-item confirmation.
+- **Legacy vault** (`vault_*` / bugs/snippets/daily/arch, Flows B/C/D): still **preview + ask** before writing Obsidian-facing notes. `vault_*` responses are marked deprecated.
 
-| Type | Path | Filename | Project coupling |
+## Memorant layout (do not deviate)
+
+| Type | Path | Filename | Notes |
 |---|---|---|---|
-| bug | `bugs/` | `{stack}-{短描述}-{YYYYMMDD}.md` | frontmatter (optional) |
-| snippet | `snippets/` | `{场景}-{技术栈}.md` | frontmatter (optional) |
-| daily | `daily/` | `{YYYY-MM-DD}.md` | frontmatter `project[]` (cross-project = one file) |
-| arch | `arch/` | `adr-{序号}-{项目}-{短描述}.md` | filename (strong) |
+| journal | `journal/YYYY/MM/DD/` | `<ts>-<event_id>.md` | immutable events |
+| memory | `memories/` | `<memory_id>.md` | A/B shared directory |
+| activity | `activity/` | `YYYY-MM-DD.md` | append-only audit |
+| bug | `bugs/` | `{stack}-{短描述}-{YYYYMMDD}.md` | legacy verified |
+| snippet | `snippets/` | `{场景}-{技术栈}.md` | legacy verified |
+| daily | `daily/` | `{YYYY-MM-DD}.md` | legacy inbox |
+| arch | `arch/` | `adr-{序号}-{项目}-{短描述}.md` | legacy verified |
 
-`date` is the unified field across all types. `arch/.sequence` holds the global ADR counter (server auto-increments).
+`.memorant/` may hold rebuildable cursors/locks only — never the business source of truth.
 
 ---
 
@@ -134,13 +141,42 @@ The `mechanical_evidence` scan reads the session transcript via the hook's `tran
 
 ---
 
+## Flow E — Distill pending journal events
+
+**Trigger**: SessionEnd, PreCompact, after `test.success`/`test.failure`/`git.commit`, or when Activity reminds about pending events.
+
+1. Call `memorant_list_pending_events` (optionally filter by `session_id` / `project`).
+2. Distill **only** from those events — never invent process details from model memory.
+3. For each candidate, produce: `claim`, `kind`, `confidence`, `scope`, `evidence[]` (quoting event excerpts), `source_event_ids`, and an A/B rationale.
+4. Call `memorant_write_memory` — **A and B auto-write**; do not ask per-item confirmation.
+5. Skip / Activity `needs_attention` when: cannot redact safely, no citable source, or unresolved conflict.
+
+## Flow F — Trust Route (A/B)
+
+- **A (`verified`)**: failure→fix→success closed loop (or tool-proven fact) with citable evidence → `trust_tier=verified`, `lifecycle=active`.
+- **B (`provisional`)**: architecture preference, unverified root cause, thin evidence → still auto-write with `trust_tier=provisional` (recall labels 待验证, downweighted).
+- **B→A**: only via `memorant_promote` / `memorant_feedback(successful_reuse)` when a **different** `session_id` supplies a **success** outcome. Same-session retries do not promote.
+- Conflicts: mark old memory `corrected`/`superseded`; write a new memory — never silent overwrite.
+
+## Flow G — Feedback & Activity
+
+- Users correct asynchronously with `/memorant-feedback` → `memorant_feedback`.
+- `/memorant-activity` shows today's writes/promotions/conflicts — audit only, not an approval gate.
+- SessionEnd shows one non-blocking summary line; interrupt only on conflicts / high-risk bad memory.
+
 ## Quick reference
 
+### Memorant (preferred)
+- `memorant_append_event` / `memorant_list_pending_events`
+- `memorant_write_memory` / `memorant_recall`
+- `memorant_feedback` / `memorant_promote` / `memorant_activity`
+
+### Legacy vault_* (compat)
 - Search: `vault_search(query, dirs?, project?, limit?)`
 - Create: `vault_create_entry(type, title, body, frontmatter, stack?, project?, date_str?)`
 - Append: `vault_append_entry(path, content, section?)`
 - Update frontmatter: `vault_update_frontmatter(path, key, value)`
-- Delete: `vault_delete_entry(path, confirm=true)` — rare, only when a daily lead is its own whole file
+- Delete: `vault_delete_entry(path, confirm=true)`
 - Recent: `vault_get_recent(dir, limit)`
 
-The Stop hook (`hooks/vault-stop.sh`) will remind you at session end: review the session for recordable bugs/decisions, generate/append the daily log, and on Fridays prompt to tidy `pending_review`. The hook only **prompts** — you (Claude) perform the actual writes via the tools above, after user confirmation.
+The compatible Stop hook (`hooks/vault-stop.sh`) still prompts for legacy daily review. Observer hooks (`hooks/memorant-hook.sh`) capture journal events and inject bounded recall — fail-open, never block the session.

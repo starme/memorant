@@ -1,4 +1,4 @@
-"""Full-text search over the vault using ripgrep.
+"""Full-text search over 书童 · Memorant using ripgrep.
 
 Falls back to Python glob+grep if `rg` is not on PATH, so the server works
 without rg installed (just slower). Results are post-filtered by project
@@ -30,6 +30,7 @@ def _search_rg(query: str, dirs: list[str], limit: int) -> list[dict]:
         "-i",
         "--max-count", "3",
         "-g", "*.md",
+        "--",
         query,
         *paths,
     ]
@@ -125,7 +126,7 @@ def search(
     project: Optional[str] = None,
     limit: int = 20,
 ) -> list[dict]:
-    """Search vault markdown for `query`. Optionally filter by dir(s) and project."""
+    """Search Memorant Markdown for `query`, optionally filtering by directory/project."""
     dirs = dirs or ["bugs", "snippets", "daily", "arch"]
     if _rg_available():
         raw = _search_rg(query, dirs, limit * 3 if project else limit)

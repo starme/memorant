@@ -1,11 +1,12 @@
 {
-  "name": "vault-experience-marketplace",
+  "name": "memorant-marketplace",
+  "description": "书童 · Memorant plugin marketplace",
   "owner": {
     "name": "starme"
   },
   "plugins": [
     {
-      "name": "vault-experience",
+      "name": "memorant",
       "source": "."
     }
   ]

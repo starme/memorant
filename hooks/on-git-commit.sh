@@ -7,7 +7,7 @@
 #   session transcript for debugging-evidence keywords (reporting raw matches).
 # It reports only raw facts; it interprets NOTHING and writes nothing to the
 # vault. All judgment (is this hit a real wrong-path? does the lean hold?) is the
-# LLM's, per skills/vault/SKILL.md Flow D, under a strict no-fabrication rule.
+# LLM's, per skills/memorant/SKILL.md Flow D, under a strict no-fabrication rule.
 #
 # Silent on every error path (exit 0, no output) — never noisy, never blocks the
 # commit (PostToolUse runs post-commit anyway).
