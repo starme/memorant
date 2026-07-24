@@ -1,5 +1,7 @@
 #!/bin/bash
-# Fail-open shim for the Python journal observer.
+# Fail-open shim for the Memorant observer / recall CLI.
+# Prefer the current plugin's stdlib-safe hook_cli.py so a stale global
+# `memorant-hook` on PATH cannot hijack behavior.
 set -uo pipefail
 
 emit_empty() {
@@ -16,6 +18,7 @@ cat > "$INPUT" 2>/dev/null || emit_empty
 command -v python3 >/dev/null 2>&1 || emit_empty
 HOOK_CLI="${CLAUDE_PLUGIN_ROOT:-}/mcp-server/memorant_mcp/hook_cli.py"
 [[ -f "$HOOK_CLI" ]] || emit_empty
+# -S keeps this path offline / venv-free; recall/activity soft-degrade.
 CMD=(python3 -B -S "$HOOK_CLI")
 
 python3 - "${MEMORANT_HOOK_TIMEOUT_SECONDS:-1.0}" "$INPUT" "$OUTPUT" \

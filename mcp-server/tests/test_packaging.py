@@ -49,7 +49,16 @@ def test_marketplace_has_strict_validation_description() -> None:
 
 
 def test_repository_does_not_commit_environment_specific_uv_lock() -> None:
-    assert not (REPO_ROOT / "mcp-server" / "uv.lock").exists()
+    # `uv run` may create a local lockfile; it must stay untracked/gitignored.
+    gitignore = (REPO_ROOT / ".gitignore").read_text()
+    assert "/mcp-server/uv.lock" in gitignore
+    tracked = __import__("subprocess").run(
+        ["git", "ls-files", "--error-unmatch", "mcp-server/uv.lock"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    assert tracked.returncode != 0
 
 
 def test_plugin_registers_journal_observer_hooks() -> None:

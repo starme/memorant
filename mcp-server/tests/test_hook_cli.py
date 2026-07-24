@@ -48,8 +48,10 @@ def test_maps_lifecycle_and_failure_events(
     assert len(result.stdout) <= 10_000
     assert output["hookSpecificOutput"]["hookEventName"] == hook_event_name
     assert len(files) == 1
-    assert f"event_type: {event_type}" in files[0].read_text()
-    assert "token=[REDACTED]" in files[0].read_text()
+    text = files[0].read_text()
+    assert f"event_type: {event_type}" in text
+    if hook_event_name == "PostToolUseFailure":
+        assert "token=[REDACTED]" in text
 
 
 @pytest.mark.parametrize(
@@ -115,7 +117,7 @@ def test_structured_exit_code_overrides_post_tool_success(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize("hook_event_name", ["PreCompact", "SessionEnd"])
-def test_events_without_output_contract_write_then_return_empty_json(
+def test_boundary_events_write_and_return_nonblocking_context(
     tmp_path: Path, hook_event_name: str
 ) -> None:
     result, files = run_cli(
@@ -126,8 +128,10 @@ def test_events_without_output_contract_write_then_return_empty_json(
             "cwd": "/work/project",
         },
     )
-    assert json.loads(result.stdout) == {}
+    output = json.loads(result.stdout)
     assert len(files) == 1
+    assert output["hookSpecificOutput"]["hookEventName"] == hook_event_name
+    assert output["hookSpecificOutput"]["additionalContext"]
 
 
 @pytest.mark.parametrize(

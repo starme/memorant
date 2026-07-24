@@ -1,7 +1,7 @@
 {
   "name": "memorant",
   "version": "0.1.0",
-  "description": "书童 · Memorant: search and record bugs, snippets, daily logs, and ADRs in a local Markdown knowledge base.",
+  "description": "书童 · Memorant: Claude Code local long-term memory runtime with journal, A/B memories, and event-driven recall.",
   "author": {
     "name": "tal"
   },

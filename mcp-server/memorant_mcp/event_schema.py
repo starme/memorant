@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from .hook_core import bounded_evidence, semantic_payload_hash
 
 
 class EventType(str, Enum):
@@ -38,16 +38,32 @@ class EventInput(BaseModel):
 
     def canonical_payload(self) -> bytes:
         data = self.model_dump(mode="json", exclude_none=False)
+        data["evidence_excerpt"] = bounded_evidence(data.get("evidence_excerpt")) or None
+        # Match semantic_payload_hash field set / encoding exactly.
+        payload = {
+            "event_type": data.get("event_type"),
+            "session_id": data.get("session_id"),
+            "project": data.get("project"),
+            "source": data.get("source"),
+            "tool_name": data.get("tool_name"),
+            "outcome": data.get("outcome"),
+            "evidence_excerpt": data.get("evidence_excerpt"),
+            "tags": data.get("tags") or [],
+        }
+        import json
+
         return json.dumps(
-            data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
         ).encode()
 
     def to_event(self) -> "Event":
+        data = self.model_dump(mode="json")
+        data["evidence_excerpt"] = bounded_evidence(data.get("evidence_excerpt")) or None
         return Event(
             event_id=uuid.uuid4().hex,
             observed_at=datetime.now(timezone.utc),
-            payload_hash=hashlib.sha256(self.canonical_payload()).hexdigest(),
-            **self.model_dump(),
+            payload_hash=semantic_payload_hash(data),
+            **data,
         )
 
 

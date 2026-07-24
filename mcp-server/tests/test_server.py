@@ -7,9 +7,17 @@ from pathlib import Path
 import pytest
 
 from memorant_mcp.server import (
+    _DEPRECATED_PREFIX,
     mcp,
     vault_create_entry,
 )
+
+
+def _created_path(result: str) -> str:
+    assert result.startswith(_DEPRECATED_PREFIX)
+    body = result.removeprefix(_DEPRECATED_PREFIX)
+    assert body.startswith("created: ")
+    return body.removeprefix("created: ")
 
 
 def test_stack_syncs_from_top_level_to_frontmatter(
@@ -28,8 +36,9 @@ def test_stack_syncs_from_top_level_to_frontmatter(
         )
     )
 
-    assert result == "created: bugs/python-连接超时-20260723.md"
-    assert "stack:\n- Python" in (tmp_path / result.removeprefix("created: ")).read_text()
+    path = _created_path(result)
+    assert path == "bugs/python-连接超时-20260723.md"
+    assert "stack:\n- Python" in (tmp_path / path).read_text()
 
 
 def test_stack_syncs_from_frontmatter_to_filename(
@@ -51,7 +60,7 @@ def test_stack_syncs_from_frontmatter_to_filename(
         )
     )
 
-    assert result == "created: bugs/go-连接重置-20260723.md"
+    assert _created_path(result) == "bugs/go-连接重置-20260723.md"
 
 
 def test_project_syncs_from_top_level_to_frontmatter(
@@ -74,7 +83,7 @@ def test_project_syncs_from_top_level_to_frontmatter(
         )
     )
 
-    content = (tmp_path / result.removeprefix("created: ")).read_text()
+    content = (tmp_path / _created_path(result)).read_text()
     assert "project: Memorant" in content
 
 
@@ -97,7 +106,7 @@ def test_project_syncs_from_frontmatter_to_arch_filename(
         )
     )
 
-    assert result == "created: arch/adr-001-memorant-选择本地优先存储.md"
+    assert _created_path(result) == "arch/adr-001-memorant-选择本地优先存储.md"
 
 
 @pytest.mark.parametrize(
@@ -131,23 +140,33 @@ def test_dual_channel_mismatch_is_rejected(
         )
     )
 
-    assert result.startswith("VALIDATION_ERROR:")
+    assert result.startswith(_DEPRECATED_PREFIX + "VALIDATION_ERROR:")
     assert expected in result
 
 
 def test_server_keeps_legacy_tool_names() -> None:
     assert mcp.name == "memorant"
     registered = asyncio.run(mcp.list_tools())
-    assert [tool.name for tool in registered] == [
+    names = [tool.name for tool in registered]
+    for legacy in [
         "vault_search",
         "vault_create_entry",
         "vault_append_entry",
         "vault_update_frontmatter",
         "vault_delete_entry",
         "vault_get_recent",
+    ]:
+        assert legacy in names
+    for modern in [
         "memorant_append_event",
         "memorant_list_pending_events",
-    ]
+        "memorant_write_memory",
+        "memorant_recall",
+        "memorant_feedback",
+        "memorant_promote",
+        "memorant_activity",
+    ]:
+        assert modern in names
 
 
 def test_append_event_tool_schema_exposes_enum_and_limits() -> None:

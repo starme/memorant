@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from memorant_mcp.event_schema import Event, EventInput
-from memorant_mcp.hook_core import append_event_data
+from memorant_mcp.hook_core import _read_event, append_event_data
 from memorant_mcp.journal import append_event, list_pending_events, redact_secrets
 from memorant_mcp.server import (
     memorant_append_event,
@@ -45,6 +45,16 @@ def test_event_input_generates_strict_server_fields() -> None:
         EventInput(**{**BASE, "unknown": "value"})
     with pytest.raises(ValidationError):
         EventInput(**{**BASE, "session_id": "x" * 300})
+
+
+def test_payload_hash_uses_redacted_normalized_semantics() -> None:
+    first = EventInput(
+        **{**BASE, "evidence_excerpt": "token=first-secret"}
+    ).to_event()
+    second = EventInput(
+        **{**BASE, "evidence_excerpt": "token=second-secret"}
+    ).to_event()
+    assert first.payload_hash == second.payload_hash
 
 
 def test_append_is_redacted_bounded_idempotent_and_immutable(
@@ -175,9 +185,10 @@ def test_legacy_mutation_tools_cannot_change_journal_events(
     )
     delete_result = asyncio.run(vault_delete_entry(created["path"], confirm=True))
 
-    assert append_result.startswith("IMMUTABLE:")
-    assert update_result.startswith("IMMUTABLE:")
-    assert delete_result.startswith("IMMUTABLE:")
+    assert "IMMUTABLE:" in append_result
+    assert "IMMUTABLE:" in update_result
+    assert "IMMUTABLE:" in delete_result
+    assert append_result.startswith("[deprecated:")
     assert path.read_text() == original
 
 
@@ -189,7 +200,7 @@ def test_append_never_overwrites_colliding_target(
         **BASE,
         event_id="a" * 32,
         observed_at=datetime(2026, 7, 23, 12, 0, tzinfo=timezone.utc),
-        payload_hash="b" * 64,
+        payload_hash=EventInput(**BASE).to_event().payload_hash,
     )
     monkeypatch.setattr(EventInput, "to_event", lambda self: fixed)
     original_rel = (
@@ -207,7 +218,7 @@ def test_append_never_overwrites_colliding_target(
     assert (tmp_path / created["path"]).is_file()
 
 
-@pytest.mark.parametrize("symlink_level", ["journal", "date"])
+@pytest.mark.parametrize("symlink_level", ["journal", "year", "date"])
 def test_append_rejects_symlink_escape_without_external_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, symlink_level: str
 ) -> None:
@@ -218,6 +229,11 @@ def test_append_rejects_symlink_escape_without_external_writes(
     monkeypatch.setenv("MEMORANT_ROOT", str(root))
     if symlink_level == "journal":
         (root / "journal").symlink_to(outside, target_is_directory=True)
+    elif symlink_level == "year":
+        today = datetime.now(timezone.utc)
+        journal = root / "journal"
+        journal.mkdir()
+        (journal / f"{today:%Y}").symlink_to(outside, target_is_directory=True)
     else:
         today = datetime.now(timezone.utc)
         parent = root / f"journal/{today:%Y/%m}"
@@ -262,6 +278,18 @@ def test_stdlib_writer_rejects_invalid_fixed_fields_before_writing(
 ) -> None:
     event = EventInput(**BASE).to_event().model_dump(mode="json")
     event["event_id"] = "bad\n---\nproject: injected"
+
+    with pytest.raises(ValueError):
+        append_event_data(event, root=str(tmp_path))
+
+    assert not (tmp_path / "journal").exists()
+
+
+def test_stdlib_writer_rejects_mismatched_semantic_hash_before_writing(
+    tmp_path: Path,
+) -> None:
+    event = EventInput(**BASE).to_event().model_dump(mode="json")
+    event["project"] = "tampered"
 
     with pytest.raises(ValueError):
         append_event_data(event, root=str(tmp_path))
@@ -337,6 +365,51 @@ def test_same_hash_poisoned_event_is_never_returned(
 
     assert created["path"] != f"journal/poison-{field}.md"
     assert corrupt.read_text() == original
+
+
+@pytest.mark.parametrize(
+    ("field", "tampered"),
+    [
+        ("project", "other-project"),
+        ("outcome", "success"),
+        ("evidence_excerpt", "tampered evidence"),
+        ("tags", ["tampered"]),
+    ],
+)
+def test_same_hash_semantically_tampered_event_is_skipped(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    tampered: object,
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    valid = EventInput(**BASE).to_event().model_dump(mode="json")
+    valid[field] = tampered
+    corrupt = tmp_path / "journal" / f"tampered-{field}.md"
+    corrupt.parent.mkdir()
+    original = frontmatter.dumps(frontmatter.Post("# event\n", **valid))
+    corrupt.write_text(original)
+
+    created = append_event(EventInput(**BASE))
+
+    assert created["path"] != f"journal/tampered-{field}.md"
+    assert corrupt.read_text() == original
+
+
+def test_stdlib_reader_matches_legacy_multiline_yaml_scalar(
+    tmp_path: Path,
+) -> None:
+    evidence = "first line\nsecond: value\n--- literal marker\nlast line"
+    event = EventInput(
+        **{**BASE, "evidence_excerpt": evidence}
+    ).to_event().model_dump(mode="json")
+    path = tmp_path / "legacy-multiline.md"
+    path.write_text(frontmatter.dumps(frontmatter.Post("# event\n", **event)))
+
+    expected = dict(frontmatter.load(path).metadata)
+    actual = _read_event(path)
+
+    assert actual["evidence_excerpt"] == expected["evidence_excerpt"] == evidence
 
 
 def test_valid_legacy_yaml_event_remains_idempotent(

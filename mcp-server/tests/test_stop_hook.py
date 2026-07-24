@@ -14,6 +14,14 @@ def _daily(root: Path, pending: int) -> None:
     path.write_text(f"---\npending_review: {pending}\n---\n", encoding="utf-8")
 
 
+def _assert_pending_mentioned(stdout: str, pending: int) -> None:
+    # Weekday branch: Fridays use "leads (N currently)"; other days use "N pending_review".
+    assert (
+        f"{pending} pending_review lead(s)" in stdout
+        or f"leads ({pending} currently)" in stdout
+    )
+
+
 def test_stop_hook_uses_project_memorant_config_before_legacy_environment(
     tmp_path: Path,
 ) -> None:
@@ -49,7 +57,7 @@ def test_stop_hook_uses_project_memorant_config_before_legacy_environment(
     )
 
     assert result.stdout.startswith("[memorant]")
-    assert "7 pending_review lead(s)" in result.stdout
+    _assert_pending_mentioned(result.stdout, 7)
 
 
 def test_stop_hook_ignores_root_outside_frontmatter(tmp_path: Path) -> None:
@@ -111,7 +119,7 @@ def test_stop_hook_matches_python_case_insensitive_root_key(tmp_path: Path) -> N
         check=True,
     )
 
-    assert "9 pending_review lead(s)" in result.stdout
+    _assert_pending_mentioned(result.stdout, 9)
 
 
 def test_stop_hook_supports_historical_vault_root_frontmatter(
@@ -144,4 +152,4 @@ def test_stop_hook_supports_historical_vault_root_frontmatter(
         check=True,
     )
 
-    assert "11 pending_review lead(s)" in result.stdout
+    _assert_pending_mentioned(result.stdout, 11)

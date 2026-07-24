@@ -24,8 +24,17 @@ import frontmatter
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from .activity import append_activity, read_activity, session_end_summary
 from .event_schema import EventInput, EventType
 from .journal import append_event, list_pending_events
+from .memory_schema import (
+    EvidenceRef,
+    MemoryKind,
+    MemoryScope,
+    MemoryWriteInput,
+    TrustTier,
+)
+from .memory_store import list_memories, read_memory, write_memory
 from .naming import (
     ConflictError,
     PathForbiddenError,
@@ -35,6 +44,8 @@ from .naming import (
     resolve_safe_path,
     vault_root,
 )
+from .promotion import apply_feedback, promote_memory
+from .recall import format_recall_context, recall_memories
 from .schema import EntryType, SCHEMA_BY_TYPE
 from .search import search as do_search
 
@@ -90,6 +101,15 @@ def _is_journal_path(path: str) -> bool:
     return path == journal or path.startswith(journal + os.sep)
 
 
+_DEPRECATED_PREFIX = "[deprecated: prefer memorant_* tools] "
+
+
+def _deprecated(message: str) -> str:
+    if message.startswith(_DEPRECATED_PREFIX):
+        return message
+    return f"{_DEPRECATED_PREFIX}{message}"
+
+
 @mcp.tool(
     name="vault_search",
     annotations={
@@ -115,12 +135,11 @@ async def vault_search(
     try:
         results = do_search(query, dirs, project, limit)
     except RuntimeError as e:
-        return f"VAULT_ERROR: {e}"
+        return _deprecated(f"VAULT_ERROR: {e}")
     if not results:
-        return "no matches found"
+        return _deprecated("no matches found")
     lines = [f"{r['file']}:{r['line']} — {r['match']}" for r in results]
-    return f"{len(results)} match(es):\n" + "\n".join(lines)
-
+    return _deprecated(f"{len(results)} match(es):\n" + "\n".join(lines))
 
 @mcp.tool(name="vault_create_entry")
 async def vault_create_entry(
@@ -194,15 +213,15 @@ async def vault_create_entry(
         if sequence is not None:
             cleaned["sequence"] = sequence
         _write_entry(rel, cleaned, body)
-        return f"created: {rel}"
+        return _deprecated(f"created: {rel}")
     except PathForbiddenError as e:
-        return f"PATH_FORBIDDEN: {e}"
+        return _deprecated(f"PATH_FORBIDDEN: {e}")
     except ConflictError as e:
-        return f"CONFLICT: {e}"
+        return _deprecated(f"CONFLICT: {e}")
     except ValueError as e:
-        return f"VALIDATION_ERROR: {e}"
+        return _deprecated(f"VALIDATION_ERROR: {e}")
     except Exception as e:
-        return f"ERROR: {e}"
+        return _deprecated(f"ERROR: {e}")
 
 
 @mcp.tool(name="vault_append_entry")
@@ -217,9 +236,9 @@ async def vault_append_entry(
     try:
         safe = resolve_safe_path(path)
         if _is_journal_path(safe):
-            return f"IMMUTABLE: journal event cannot be changed: {path}"
+            return _deprecated(f"IMMUTABLE: journal event cannot be changed: {path}")
         if not os.path.exists(safe):
-            return f"NOT_FOUND: {path}"
+            return _deprecated(f"NOT_FOUND: {path}")
         with open(safe, "r", encoding="utf-8") as f:
             text = f.read()
         if section:
@@ -238,11 +257,11 @@ async def vault_append_entry(
             text += content + "\n"
         with open(safe, "w", encoding="utf-8") as f:
             f.write(text)
-        return f"appended to: {path}"
+        return _deprecated(f"appended to: {path}")
     except PathForbiddenError as e:
-        return f"PATH_FORBIDDEN: {e}"
+        return _deprecated(f"PATH_FORBIDDEN: {e}")
     except Exception as e:
-        return f"ERROR: {e}"
+        return _deprecated(f"ERROR: {e}")
 
 
 @mcp.tool(name="vault_update_frontmatter")
@@ -259,19 +278,19 @@ async def vault_update_frontmatter(
     try:
         safe = resolve_safe_path(path)
         if _is_journal_path(safe):
-            return f"IMMUTABLE: journal event cannot be changed: {path}"
+            return _deprecated(f"IMMUTABLE: journal event cannot be changed: {path}")
         if not os.path.exists(safe):
-            return f"NOT_FOUND: {path}"
+            return _deprecated(f"NOT_FOUND: {path}")
         with open(safe, "r", encoding="utf-8") as f:
             post = frontmatter.load(f)
         post[key] = value
         with open(safe, "w", encoding="utf-8") as f:
             f.write(frontmatter.dumps(post))
-        return f"updated {path}: {key}={value}"
+        return _deprecated(f"updated {path}: {key}={value}")
     except PathForbiddenError as e:
-        return f"PATH_FORBIDDEN: {e}"
+        return _deprecated(f"PATH_FORBIDDEN: {e}")
     except Exception as e:
-        return f"ERROR: {e}"
+        return _deprecated(f"ERROR: {e}")
 
 
 @mcp.tool(
@@ -288,19 +307,19 @@ async def vault_delete_entry(path: str, confirm: bool = False) -> str:
     update the daily file instead. `confirm` must be true to proceed.
     """
     if not confirm:
-        return "REFUSED: pass confirm=true to delete"
+        return _deprecated("REFUSED: pass confirm=true to delete")
     try:
         safe = resolve_safe_path(path)
         if _is_journal_path(safe):
-            return f"IMMUTABLE: journal event cannot be changed: {path}"
+            return _deprecated(f"IMMUTABLE: journal event cannot be changed: {path}")
         if not os.path.exists(safe):
-            return f"NOT_FOUND: {path}"
+            return _deprecated(f"NOT_FOUND: {path}")
         os.remove(safe)
-        return f"deleted: {path}"
+        return _deprecated(f"deleted: {path}")
     except PathForbiddenError as e:
-        return f"PATH_FORBIDDEN: {e}"
+        return _deprecated(f"PATH_FORBIDDEN: {e}")
     except Exception as e:
-        return f"ERROR: {e}"
+        return _deprecated(f"ERROR: {e}")
 
 
 @mcp.tool(
@@ -319,9 +338,9 @@ async def vault_get_recent(dir: str, limit: int = 10) -> str:
         root = vault_root()
         target = os.path.realpath(os.path.join(root, dir))
         if target != root and not target.startswith(root + os.sep):
-            return "PATH_FORBIDDEN: dir escapes MEMORANT_ROOT"
+            return _deprecated("PATH_FORBIDDEN: dir escapes MEMORANT_ROOT")
         if not os.path.isdir(target):
-            return f"NOT_FOUND: {dir}"
+            return _deprecated(f"NOT_FOUND: {dir}")
         files = [
             os.path.join(dp, fn)
             for dp, _ds, fns in os.walk(target)
@@ -331,11 +350,11 @@ async def vault_get_recent(dir: str, limit: int = 10) -> str:
         files.sort(key=os.path.getmtime, reverse=True)
         files = files[:limit]
         if not files:
-            return f"no files in {dir}"
+            return _deprecated(f"no files in {dir}")
         lines = [f"- {os.path.relpath(p, root)}" for p in files]
-        return f"{len(files)} recent in {dir}:\n" + "\n".join(lines)
+        return _deprecated(f"{len(files)} recent in {dir}:\n" + "\n".join(lines))
     except Exception as e:
-        return f"ERROR: {e}"
+        return _deprecated(f"ERROR: {e}")
 
 
 @mcp.tool(name="memorant_append_event")
@@ -385,6 +404,186 @@ async def memorant_list_pending_events(
         return {"events": events, "count": len(events)}
     except Exception as e:
         return {"error": "ERROR", "message": str(e), "events": [], "count": 0}
+
+
+@mcp.tool(name="memorant_write_memory")
+async def memorant_write_memory(
+    title: Annotated[str, Field(min_length=1, max_length=200)],
+    claim: Annotated[str, Field(min_length=1, max_length=4000)],
+    kind: MemoryKind,
+    trust_tier: TrustTier,
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)],
+    evidence: Optional[list[dict[str, Any]]] = None,
+    source_event_ids: Optional[list[str]] = None,
+    project: Optional[str] = None,
+    stack: Optional[list[str]] = None,
+    related: Optional[list[str]] = None,
+    supersedes: Optional[str] = None,
+    origin_session_ids: Optional[list[str]] = None,
+    body: Optional[str] = None,
+) -> dict[str, Any]:
+    """Write an A/B Memory Envelope. Same source_fingerprint retries are deduped."""
+    try:
+        refs = [EvidenceRef(**item) for item in (evidence or [])]
+        write = MemoryWriteInput(
+            title=title,
+            claim=claim,
+            kind=kind,
+            trust_tier=trust_tier,
+            confidence=confidence,
+            scope=MemoryScope(project=project, stack=stack or []),
+            evidence=refs,
+            source_event_ids=source_event_ids or [],
+            related=related or [],
+            supersedes=supersedes,
+            origin_session_ids=origin_session_ids or [],
+            body=body,
+        )
+        result = write_memory(write)
+        append_activity(
+            "memory.write",
+            f"{trust_tier.value} {title}",
+            project=project,
+            memory_path=result.get("path"),
+            attention="info",
+        )
+        return result
+    except ValueError as e:
+        return {"error": "VALIDATION_ERROR", "message": str(e)}
+    except Exception as e:
+        return {"error": "ERROR", "message": str(e)}
+
+
+@mcp.tool(
+    name="memorant_recall",
+    annotations={"readOnlyHint": True, "openWorldHint": False},
+)
+async def memorant_recall(
+    query: str,
+    project: Optional[str] = None,
+    trigger: Optional[str] = None,
+    limit: int = 5,
+    include_provisional: bool = True,
+) -> dict[str, Any]:
+    """Recall ranked memories with trust labels for event-driven injection."""
+    try:
+        payload = recall_memories(
+            query,
+            project=project,
+            trigger=trigger,
+            limit=limit,
+            include_provisional=include_provisional,
+        )
+        payload["context"] = format_recall_context(payload)
+        append_activity(
+            "memory.recall",
+            f"query={query[:80]} hits={payload['count']}",
+            project=project,
+        )
+        return payload
+    except Exception as e:
+        return {
+            "error": "ERROR",
+            "message": str(e),
+            "results": [],
+            "count": 0,
+        }
+
+
+@mcp.tool(name="memorant_feedback")
+async def memorant_feedback(
+    path: str,
+    action: Annotated[
+        str,
+        Field(
+            pattern=r"^(adopted|ignored|corrected|contradicted|successful_reuse)$"
+        ),
+    ],
+    note: Optional[str] = None,
+    session_id: Optional[str] = None,
+    replacement_claim: Optional[str] = None,
+    success_outcome: Optional[str] = None,
+) -> dict[str, Any]:
+    """Apply async feedback: adopt/ignore/correct/contradict/successful_reuse."""
+    try:
+        result = apply_feedback(
+            path,
+            action,  # type: ignore[arg-type]
+            note=note,
+            session_id=session_id,
+            replacement_claim=replacement_claim,
+            success_outcome=success_outcome,
+        )
+        attention = (
+            "conflict"
+            if action in {"corrected", "contradicted"}
+            else "info"
+        )
+        append_activity(
+            f"memory.feedback.{action}",
+            note or action,
+            memory_path=path,
+            attention=attention,
+        )
+        return result
+    except FileNotFoundError:
+        return {"error": "NOT_FOUND", "message": path}
+    except Exception as e:
+        return {"error": "ERROR", "message": str(e)}
+
+
+@mcp.tool(name="memorant_promote")
+async def memorant_promote(
+    path: str,
+    evidence_session_id: Annotated[str, Field(min_length=1, max_length=256)],
+    success_outcome: Annotated[str, Field(min_length=1, max_length=64)],
+    evidence_excerpt: Optional[str] = None,
+) -> dict[str, Any]:
+    """Promote provisional (B) → verified (A) with independent success evidence."""
+    try:
+        result = promote_memory(
+            path,
+            evidence_session_id=evidence_session_id,
+            success_outcome=success_outcome,
+            evidence_excerpt=evidence_excerpt,
+        )
+        if result.get("promoted"):
+            append_activity(
+                "memory.promote",
+                f"B→A {path}",
+                memory_path=path,
+            )
+        return result
+    except FileNotFoundError:
+        return {"error": "NOT_FOUND", "message": path}
+    except Exception as e:
+        return {"error": "ERROR", "message": str(e)}
+
+
+@mcp.tool(
+    name="memorant_activity",
+    annotations={"readOnlyHint": True, "openWorldHint": False},
+)
+async def memorant_activity(
+    day: Optional[str] = None,
+    project: Optional[str] = None,
+    attention_only: bool = False,
+    include_session_summary: bool = False,
+) -> dict[str, Any]:
+    """Read non-blocking Memory Activity for a day/project."""
+    try:
+        payload = read_activity(
+            day=day, project=project, attention_only=attention_only
+        )
+        if include_session_summary:
+            payload["session_summary"] = session_end_summary(project=project)
+        return payload
+    except Exception as e:
+        return {"error": "ERROR", "message": str(e), "entries": [], "count": 0}
+
+
+# Keep list_memories import used for future tooling / tests.
+_ = (list_memories, read_memory)
 
 
 def main() -> None:

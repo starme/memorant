@@ -1,32 +1,31 @@
 # 书童 · Memorant
 
-A Claude Code plugin that turns daily development work into a searchable local knowledge base. While you code, Claude searches past bugs/snippets/ADRs before acting and prompts you to record new ones after solving them.
+Claude Code 的本地长期记忆运行时。Hooks 采集确定性事件，当前会话中的 Claude 提炼为可追溯 Memory Envelope（A 已验证 / B 待验证），Markdown/Obsidian 是唯一业务事实源。
+
+Tagline: *The companion that remembers what your agents learn.*
 
 ## What it does
 
-- **Search before acting** — when you hit a bug or make a tech choice, Claude checks the vault first so you don't repeat a wrong path.
-- **Record after solving** — after a non-trivial bug, reusable snippet, or architectural decision, Claude prompts you to record it (never auto-writes).
-- **Daily logs** — at session end, the day's work is summarized and appended to one `daily/YYYY-MM-DD.md` (cross-project days land in the same file).
-- **Promote flow** — daily "待升" leads migrate into permanent `bugs/` / `snippets/` / `arch/` entries with one confirmation.
+- **Observer** — Session / Failure / Test / Commit / PreCompact 写入不可变 Event Journal
+- **Distiller** — 当前 Claude Code 按 Skill 将 pending events 提炼为 A/B 记忆（自动写入，不再逐条确认）
+- **Event-driven recall** — SessionStart / UserPromptSubmit / Failure 注入有界召回（B 类降权并标注「待验证」）
+- **B→A promotion** — 仅当**不同会话**出现成功 outcome 时升级
+- **Memory Activity** — Obsidian `activity/` + `/memorant-activity` 异步审计；冲突才即时提醒
+- **Legacy vault** — 既有 `bugs/` / `snippets/` / `daily/` / `arch/` 与 `vault_*` 工具在兼容期内继续可用
 
-## Memorant structure
+## Memorant layout
 
 ```
 $MEMORANT_ROOT/
-├── bugs/      {stack}-{短描述}-{YYYYMMDD}.md      framework pitfalls, root-caused bugs
-├── snippets/  {场景}-{技术栈}.md                  reusable, scenario-specific code/config
-├── daily/     {YYYY-MM-DD}.md                     time-first dev log (project in frontmatter)
-├── arch/      adr-{序号}-{项目}-{短描述}.md        architecture decisions, global ADR numbering
-└── arch/.sequence                              global ADR counter
+├── journal/YYYY/MM/DD/<ts>-<event_id>.md   immutable events
+├── memories/<memory_id>.md                 A/B Memory Envelopes
+├── activity/YYYY-MM-DD.md                  append-only audit trail
+├── .memorant/                              rebuildable cursors/locks only
+├── bugs/ snippets/ daily/ arch/            legacy vault (still read)
+└── arch/.sequence
 ```
 
-Project coupling differs by type: `arch` is project-bound (project in the filename); `bugs`/`snippets` are weakly bound (project in optional frontmatter); `daily` is time-first (project in a frontmatter array, so a cross-project day merges into one file).
-
-## Install
-
-Plugins ship through a marketplace, so installing is two steps: add this repo as a marketplace, then install the plugin from it.
-
-Inside a Claude Code session:
+## Install / upgrade from vault-experience
 
 ```
 /plugin marketplace add starme/vault-experience-plugin
@@ -34,64 +33,67 @@ Inside a Claude Code session:
 /reload-plugins
 ```
 
-Or from the terminal (defaults to user scope):
-
-```bash
-claude plugin marketplace add starme/vault-experience-plugin
-claude plugin install memorant@memorant-marketplace
-```
-
-You can also browse and install via the `/plugin` panel's Discover tab.
-
-### Set your Memorant path (one-time)
-
-Either an env var in your shell profile:
+Configure root (new names preferred; old names still work):
 
 ```bash
 export MEMORANT_ROOT=/path/to/your/knowledge-base
-```
-
-…or a plugin settings file read by the Stop hook:
-
-```bash
-mkdir -p .claude
-cat > .claude/memorant.local.md <<'EOF'
----
-root: /path/to/your/knowledge-base
----
-EOF
-```
-
-Then create the four directories:
-
-```bash
-mkdir -p "$MEMORANT_ROOT"/{bugs,snippets,daily,arch}
+# fallback: VAULT_ROOT, .claude/memorant.local.md, .claude/vault.local.md
+mkdir -p "$MEMORANT_ROOT"/{journal,memories,activity,bugs,snippets,daily,arch}
 echo 0 > "$MEMORANT_ROOT"/arch/.sequence
 ```
 
-**Requirements:** `uvx` (the `uv` tool) for the Python MCP server runtime.
+**Requirements:** `uvx` (`uv`) for the Python MCP server.
+
+### Privacy model
+
+- Journal 默认只存有界摘要 + payload hash，不存完整 transcript / 完整工具参数 / 环境变量
+- 写入前脱敏：token、password、private key、Authorization header 等
+- 无法安全摘要时只保留 hash 与来源类型
+- 召回内容作为不可信数据注入，带 trust/source 标签，不得覆盖系统或用户指令
+
+### Auto-write semantics
+
+| Tier | Write | Recall |
+|---|---|---|
+| A `verified` | auto | normal weight |
+| B `provisional` | auto | downweighted + 「待验证」 |
+| Conflict | new memory + old `corrected`/`superseded` | old stops normal recall |
+
+### Feature flags (defaults: all on for first compat release)
+
+Set via env `MEMORANT_<FLAG>=true|false` or `.claude/memorant.local.md` frontmatter:
+
+| Flag | Effect when false |
+|---|---|
+| `auto_capture` | Hooks skip journal append |
+| `auto_write_verified` | Refuse A-tier `memorant_write_memory` |
+| `auto_write_provisional` | Refuse B-tier `memorant_write_memory` |
+| `event_recall` | Hooks skip recall injection |
+| `activity_summary` | SessionEnd skips one-line Activity summary |
+
+### Rollback
+
+关闭新 Hook / 自动写配置并恢复使用旧 Skill 即可。Journal、Memory、Activity Markdown **保留**，不做破坏性迁移。
+
+### Data export
+
+整库即 Markdown 目录：复制 `$MEMORANT_ROOT` 即可导出；Obsidian 直接打开该目录。
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
-| `/memorant-search <query>` | Search past bugs/snippets/ADRs/daily notes by keyword or error text |
-| `/memorant-log <bug\|snippet> <desc>` | Record a bug or snippet after solving something non-trivial |
-| `/memorant-adr <desc>` | Write an Architecture Decision Record |
+| `/memorant-search` | 搜索 legacy vault |
+| `/memorant-log` / `/memorant-adr` | 兼容的人工记录入口 |
+| `/memorant-activity` | 当天 Memory Activity |
+| `/memorant-feedback` | 纠正 / 替代 / 确认成功复用 |
 
-The legacy `/vault-search`, `/vault-log`, and `/vault-adr` commands remain compatibility aliases. ADRs and daily logs are written through the Skill's recording flow (`/memorant-adr` for ADRs, session-end hook for daily).
+Legacy `/vault-*` 命令仍可用（deprecated aliases）。
 
-## How it works
+## MCP tools
 
-| Layer | Responsibility |
-|---|---|
-| MCP server (`mcp-server/`) | atomic file I/O, frontmatter schema validation, path whitelist, ripgrep search |
-| Skill (`skills/memorant/`) | orchestration: search/record thresholds, dedup checks, promote migration, template filling |
-| Hook (`hooks/vault-stop.sh`) | session-end triggers — prompts only, never writes |
-| Commands (`commands/`) | manual entry points for search / record / ADR |
+**Memorant:** `memorant_append_event`, `memorant_list_pending_events`, `memorant_write_memory`, `memorant_recall`, `memorant_feedback`, `memorant_promote`, `memorant_activity`
 
-The server validates frontmatter (required fields, naming rules) and rejects path traversal, so writes stay inside `$MEMORANT_ROOT`. Legacy `VAULT_ROOT` and `.claude/vault.local.md` configuration remain supported.
+**Compat:** `vault_search`, `vault_create_entry`, `vault_append_entry`, `vault_update_frontmatter`, `vault_delete_entry`, `vault_get_recent`（结果可带 deprecated 语义）
 
-Available MCP tools (exposed by the server): `vault_search`, `vault_create_entry`, `vault_append_entry`, `vault_update_frontmatter`, `vault_get_recent`, `vault_delete_entry`.
-
-See `skills/memorant/SKILL.md` for the full recording thresholds and promote flow.
+See `skills/memorant/SKILL.md` for Distill / Trust Route / Feedback flows.

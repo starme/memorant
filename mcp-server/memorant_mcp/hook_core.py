@@ -66,11 +66,32 @@ def redact_secrets(text: str | None) -> str:
     return _CREDENTIAL.sub(r"\1\2[REDACTED]", text)
 
 
-def _bounded_evidence(text: str | None) -> str:
+def bounded_evidence(text: str | None) -> str:
     safe = redact_secrets(text)
     if len(safe) <= MAX_EVIDENCE:
         return safe
     return safe[: MAX_EVIDENCE - 16] + "\n… [truncated]"
+
+
+_bounded_evidence = bounded_evidence
+
+
+def semantic_payload_hash(data: dict[str, Any]) -> str:
+    """Hash redacted/normalized event semantics (excludes id/time/hash)."""
+    payload = {
+        "event_type": data.get("event_type"),
+        "session_id": data.get("session_id"),
+        "project": data.get("project"),
+        "source": data.get("source"),
+        "tool_name": data.get("tool_name"),
+        "outcome": data.get("outcome"),
+        "evidence_excerpt": bounded_evidence(data.get("evidence_excerpt")) or None,
+        "tags": data.get("tags") or [],
+    }
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _read_local_root(path: Path, *, allow_vault_root: bool = False) -> str | None:
@@ -167,14 +188,14 @@ def _validate_input(data: dict[str, Any]) -> dict[str, Any]:
 
 def build_event(data: dict[str, Any]) -> dict[str, Any]:
     cleaned = _validate_input(data)
-    canonical = json.dumps(
-        cleaned, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode()
+    cleaned["evidence_excerpt"] = (
+        bounded_evidence(cleaned.get("evidence_excerpt")) or None
+    )
     return {
         **cleaned,
         "event_id": uuid.uuid4().hex,
         "observed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "payload_hash": hashlib.sha256(canonical).hexdigest(),
+        "payload_hash": semantic_payload_hash(cleaned),
     }
 
 
@@ -217,6 +238,64 @@ def _render_event(event: dict[str, Any]) -> str:
     return f"---\n{frontmatter}\n---\n\n{body}"
 
 
+def _single_quoted_closes(raw: str) -> bool:
+    if not raw.startswith("'"):
+        return False
+    i = 1
+    while i < len(raw):
+        if raw[i] == "'":
+            if i + 1 < len(raw) and raw[i + 1] == "'":
+                i += 2
+                continue
+            return i == len(raw) - 1
+        i += 1
+    return False
+
+
+def _fold_yaml_single_quoted_parts(parts: list[str]) -> str:
+    folded: list[str] = []
+    pending_blank = False
+    for part in parts:
+        if part == "":
+            pending_blank = True
+            continue
+        if not folded:
+            folded.append(part)
+        elif pending_blank:
+            folded.append("\n" + part)
+            pending_blank = False
+        else:
+            folded.append(" " + part)
+    return "".join(folded).replace("''", "'")
+
+
+def _parse_single_quoted(lines: list[str], index: int, first: str) -> tuple[Any, int]:
+    """Parse a YAML single-quoted scalar that may span lines."""
+    if _single_quoted_closes(first):
+        return first[1:-1].replace("''", "'"), index + 1
+
+    parts: list[str] = [first[1:]]
+    index += 1
+    while index < len(lines):
+        stripped = lines[index].lstrip(" ")
+        close_at = None
+        i = 0
+        while i < len(stripped):
+            if stripped[i] == "'":
+                if i + 1 < len(stripped) and stripped[i + 1] == "'":
+                    i += 2
+                    continue
+                close_at = i
+                break
+            i += 1
+        if close_at is not None:
+            parts.append(stripped[:close_at])
+            return _fold_yaml_single_quoted_parts(parts), index + 1
+        parts.append(stripped)
+        index += 1
+    raise ValueError("unterminated single-quoted scalar")
+
+
 def _read_event(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---"):
@@ -224,13 +303,16 @@ def _read_event(path: Path) -> dict[str, Any]:
     end = text.find("\n---", 3)
     if end == -1:
         raise ValueError("unterminated frontmatter")
+
     def parse_scalar(raw: str) -> Any:
         if raw == "null":
             return None
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
-            return raw.strip("\"'")
+            if len(raw) >= 2 and raw[0] == raw[-1] == "'":
+                return raw[1:-1].replace("''", "'")
+            return raw
 
     event: dict[str, Any] = {}
     lines = text[3:end].splitlines()
@@ -249,6 +331,8 @@ def _read_event(path: Path) -> dict[str, Any]:
                 values.append(parse_scalar(lines[index][2:].strip()))
                 index += 1
             value: Any = values
+        elif raw.startswith("'") and not _single_quoted_closes(raw):
+            value, index = _parse_single_quoted(lines, index, raw)
         else:
             value = parse_scalar(raw)
             index += 1
@@ -309,6 +393,8 @@ def _validate_stored_event(
         or event["payload_hash"] != payload_hash
     ):
         raise ValueError("invalid payload_hash")
+    if semantic_payload_hash(event) != payload_hash:
+        raise ValueError("semantic payload_hash mismatch")
     limits = {
         "session_id": 256,
         "project": 256,
@@ -359,6 +445,21 @@ def _resolve_inside(root: Path, path: Path) -> Path:
     return resolved
 
 
+def _ensure_dir_inside(root: Path, relative: Path) -> Path:
+    """Create each path segment under root, refusing symlink escapes."""
+    current = root
+    for part in relative.parts:
+        nxt = current / part
+        if nxt.is_symlink():
+            _resolve_inside(root, nxt)
+        elif nxt.exists() and not nxt.is_dir():
+            raise ValueError(f"path escapes MEMORANT_ROOT: {nxt}")
+        else:
+            nxt.mkdir(exist_ok=True)
+        current = _resolve_inside(root, nxt)
+    return current
+
+
 def append_event_data(event: dict[str, Any], *, root: str) -> dict[str, Any]:
     payload_hash = event.get("payload_hash")
     if not isinstance(payload_hash, str):
@@ -367,9 +468,7 @@ def append_event_data(event: dict[str, Any], *, root: str) -> dict[str, Any]:
     root_candidate = Path(root)
     root_candidate.mkdir(parents=True, exist_ok=True)
     root_path = root_candidate.resolve()
-    journal_candidate = root_path / "journal"
-    journal_candidate.mkdir(parents=True, exist_ok=True)
-    journal = _resolve_inside(root_path, journal_candidate)
+    journal = _ensure_dir_inside(root_path, Path("journal"))
     lock_path = journal / ".append.lock"
     with lock_path.open("a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -386,9 +485,7 @@ def append_event_data(event: dict[str, Any], *, root: str) -> dict[str, Any]:
                 f"{observed:%Y%m%dT%H%M%S%fZ}-{event['event_id']}.md"
             )
             rendered = _render_event(event)
-            target_dir_candidate = root_path / Path(base_rel).parent
-            target_dir_candidate.mkdir(parents=True, exist_ok=True)
-            target_dir = _resolve_inside(root_path, target_dir_candidate)
+            target_dir = _ensure_dir_inside(root_path, Path(base_rel).parent)
             fd, temp_name = tempfile.mkstemp(
                 prefix=f".{event['event_id']}-", suffix=".tmp", dir=target_dir
             )
