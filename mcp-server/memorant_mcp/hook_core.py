@@ -88,6 +88,9 @@ def semantic_payload_hash(data: dict[str, Any]) -> str:
         "evidence_excerpt": bounded_evidence(data.get("evidence_excerpt")) or None,
         "tags": data.get("tags") or [],
     }
+    # Only include when set — keeps legacy events' hashes stable.
+    if data.get("project_key"):
+        payload["project_key"] = data.get("project_key")
     canonical = json.dumps(
         payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode()
@@ -143,7 +146,21 @@ def _find_local(filename: str) -> str | None:
 
 
 def discover_root() -> str:
+    """Priority: MEMORANT_ROOT > settings.json root > memorant.local.md > VAULT_*."""
     root = os.environ.get("MEMORANT_ROOT", "").strip()
+    if not root:
+        try:
+            from .config import settings_root
+        except ImportError:
+            try:
+                from config import settings_root  # type: ignore
+            except ImportError:
+                settings_root = None  # type: ignore
+        if settings_root is not None:
+            try:
+                root = (settings_root() or "").strip()
+            except Exception:
+                root = ""
     if not root:
         root = (_find_local("memorant.local.md") or "").strip()
     if not root:
@@ -183,6 +200,16 @@ def _validate_input(data: dict[str, Any]) -> dict[str, Any]:
     ):
         raise ValueError("invalid tags")
     cleaned["tags"] = tags
+    project_key = data.get("project_key")
+    if project_key is None or project_key == "":
+        cleaned["project_key"] = None
+    elif (
+        isinstance(project_key, str)
+        and re.fullmatch(r"[0-9a-f]{16,64}", project_key.strip().lower())
+    ):
+        cleaned["project_key"] = project_key.strip().lower()
+    else:
+        raise ValueError("invalid project_key")
     return cleaned
 
 
@@ -191,6 +218,8 @@ def build_event(data: dict[str, Any]) -> dict[str, Any]:
     cleaned["evidence_excerpt"] = (
         bounded_evidence(cleaned.get("evidence_excerpt")) or None
     )
+    if not cleaned.get("project_key"):
+        cleaned.pop("project_key", None)
     return {
         **cleaned,
         "event_id": uuid.uuid4().hex,
@@ -216,7 +245,7 @@ def _yaml_scalar(key: str, value: Any) -> str:
 def _render_event(event: dict[str, Any]) -> str:
     evidence = _bounded_evidence(event.get("evidence_excerpt"))
     event["evidence_excerpt"] = evidence or None
-    fields = (
+    fields = [
         "event_id",
         "event_type",
         "observed_at",
@@ -228,7 +257,10 @@ def _render_event(event: dict[str, Any]) -> str:
         "evidence_excerpt",
         "payload_hash",
         "tags",
-    )
+    ]
+    if event.get("project_key"):
+        # Keep project_key next to project for readability.
+        fields.insert(fields.index("project") + 1, "project_key")
     frontmatter = "\n".join(
         f"{key}: {_yaml_scalar(key, event.get(key))}" for key in fields
     )
@@ -374,8 +406,16 @@ def _validate_stored_event(
         "payload_hash",
         "tags",
     }
-    if set(event) != fixed_fields:
+    optional_fields = {"project_key"}
+    keys = set(event)
+    if not fixed_fields.issubset(keys) or not keys.issubset(fixed_fields | optional_fields):
         raise ValueError("unexpected event fields")
+    project_key = event.get("project_key")
+    if project_key is not None and not (
+        isinstance(project_key, str)
+        and re.fullmatch(r"[0-9a-f]{16,64}", project_key)
+    ):
+        raise ValueError("invalid project_key")
     if not isinstance(event["event_id"], str) or not re.fullmatch(
         r"[0-9a-f]{32}", event["event_id"]
     ):

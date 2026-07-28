@@ -15,3 +15,9 @@ build/
 # Plugin local settings (contain user knowledge-base paths)
 .claude/memorant.local.md
 .claude/vault.local.md
+
+# Superpowers skill cache (brainstorm/sdd working dirs)
+.superpowers/
+
+# Docs moved out of version control (kept locally)
+docs/

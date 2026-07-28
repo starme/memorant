@@ -27,7 +27,8 @@ class ConflictError(Exception):
 def vault_root() -> str:
     """Resolve the Memorant root while preserving Vault compatibility.
 
-    Priority: MEMORANT_ROOT > memorant.local.md > VAULT_ROOT > vault.local.md.
+    Priority: MEMORANT_ROOT > memorant.settings.json root >
+    memorant.local.md > VAULT_ROOT > vault.local.md.
     """
     try:
         return discover_root()
