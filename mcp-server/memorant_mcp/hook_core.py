@@ -14,7 +14,10 @@ from pathlib import Path
 from typing import Any
 
 MAX_EVIDENCE = 4096
-EVENT_TYPES = {
+
+# Keep in sync with EventType (event_schema.py). hook_core runs under stdlib-only
+# -S execution where relative imports may fail, so we don't derive at import time.
+EVENT_TYPES: set[str] = {
     "session.start",
     "session.end",
     "context.precompact",
@@ -22,6 +25,8 @@ EVENT_TYPES = {
     "test.failure",
     "test.success",
     "git.commit",
+    "doc.commit",
+    "decision.adopt",
 }
 _PRIVATE_KEY_BLOCK = re.compile(
     r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----",

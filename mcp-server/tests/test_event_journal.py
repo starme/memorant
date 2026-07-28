@@ -175,6 +175,26 @@ def test_pending_events_skip_session_start_noise(
     assert start["event_id"] not in pending_ids
 
 
+def test_non_dev_events_append_and_enter_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Non-dev milestones (doc.commit / decision.adopt) are the non-dev entry to the
+    journal→Distill chain (backlog P2). They append like any event and surface in
+    pending so Flow E can distill them — no Bash hook required, observer/command triggered."""
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    doc = append_event(
+        EventInput(**{**BASE, "event_type": "doc.commit", "evidence_excerpt": "PRD 定稿"})
+    )
+    decision = append_event(
+        EventInput(
+            **{**BASE, "event_type": "decision.adopt", "evidence_excerpt": "采纳 Redis 缓存"}
+        )
+    )
+    pending_ids = {x["event_id"] for x in list_pending_events()}
+    assert doc["event_id"] in pending_ids
+    assert decision["event_id"] in pending_ids
+
+
 def test_structured_mcp_tools_return_dicts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

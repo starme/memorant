@@ -183,6 +183,8 @@ def test_append_event_tool_schema_exposes_enum_and_limits() -> None:
         "test.failure",
         "test.success",
         "git.commit",
+        "doc.commit",
+        "decision.adopt",
     ]
     assert properties["session_id"]["minLength"] == 1
     assert properties["session_id"]["maxLength"] == 256
