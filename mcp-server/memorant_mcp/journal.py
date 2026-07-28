@@ -58,6 +58,10 @@ def list_pending_events(
             continue
         if event.event_id in referenced:
             continue
+        # session.start is a session-boundary marker, not a Distill candidate:
+        # no migratable form, pure noise. Keep in journal (audit), skip from pending.
+        if event.event_type == "session.start":
+            continue
         if session_id is not None and event.session_id != session_id:
             continue
         if project is not None and event.project != project:

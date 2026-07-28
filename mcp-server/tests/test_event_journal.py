@@ -161,6 +161,20 @@ def test_pending_events_exclude_memory_references_and_sort(
     assert [x["event_id"] for x in pending] == [second["event_id"]]
 
 
+def test_pending_events_skip_session_start_noise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """session.start is pure noise for Distill: it carries no migratable form, only
+    a session boundary marker. Keep it in the journal (audit trail) but exclude
+    from pending candidates so the Distill list stays signal, not every-session spam."""
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    start = append_event(EventInput(**{**BASE, "event_type": "session.start"}))
+    failure = append_event(EventInput(**BASE))
+    pending_ids = [x["event_id"] for x in list_pending_events()]
+    assert failure["event_id"] in pending_ids
+    assert start["event_id"] not in pending_ids
+
+
 def test_structured_mcp_tools_return_dicts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
