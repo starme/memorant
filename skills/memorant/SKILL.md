@@ -1,6 +1,6 @@
 ---
 name: memorant
-description: Use when developing — search 书童 · Memorant for past bugs/snippets/ADRs before debugging or making tech choices, prompt to record non-trivial bugs/reusable snippets/architectural decisions after solving them, generate daily logs at session end, and promote daily "待升" leads into permanent bugs/snippets/ADR entries. Triggers on debugging, error messages, tech selection, "记到 memorant", "memorant", "vault", "经验库", daily summary, ADR.
+description: Use when developing — search 书童 · Memorant for past bugs/snippets/ADRs before debugging or making tech choices, prompt to record non-trivial bugs/reusable snippets/architectural decisions after solving them, generate daily logs at session end, and promote daily "待升" leads into permanent bugs/snippets/ADR entries. Triggers on debugging, error messages, tech selection, "记到 memorant", "memorant", "vault", "经验库", daily summary, ADR, and non-dev milestones (PRD/spec/ADR 定稿、决策采纳).
 ---
 
 # 书童 · Memorant Orchestrator
@@ -147,6 +147,12 @@ The `mechanical_evidence` scan reads the session transcript via the hook's `tran
 - Hook `additionalContext` after `test.success` / meaningful `git.commit`
 - `PreCompact` / `SessionEnd` distill reminders
 - Activity notes pending events
+- **Non-dev milestones** (no Bash hook — observe then act, still proactive): a PRD
+  / spec / ADR / design decision was just **finalized or adopted** (user said
+  "定稿/采纳/敲定" or you produced the final doc). Append a `doc.commit` or
+  `decision.adopt` event via `memorant_append_event`, then immediately run the
+  gate. Do **not** wait for the user to say「记一下」— the milestone itself is
+  the trigger. (backlog P2: 换 Observer，不换「等人吩咐」)
 
 **Hard rule — proactive**: When a Distill trigger appears, **immediately** run this flow in the current turn. Do **not** ask whether to distill. Auto-write qualified forms; skip silently (journal remains) when the ontology gate fails.
 

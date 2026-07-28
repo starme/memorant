@@ -20,6 +20,11 @@ class EventType(str, Enum):
     test_failure = "test.failure"
     test_success = "test.success"
     git_commit = "git.commit"
+    # Non-dev proactive capture (backlog P2): doc/decision milestones trigger
+    # Distill via an observer command, not a Bash hook — same journal→Distill
+    # chain, different entry. "换 Observer，不换等人吩咐".
+    doc_commit = "doc.commit"
+    decision_adopt = "decision.adopt"
 
 
 class EventInput(BaseModel):
