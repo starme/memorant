@@ -184,6 +184,7 @@ No fingerprint → gate fail (懂得不记).
    - `source_event_ids` (≥1) from pending events
    - `origin_session_ids` when known
    - `project` / `project_key` inherited from source events (key must match sources)
+   - `recurrence_cadence` — only when the form is a **recurring seasonal/annual experience** (e.g. year-end review, fiscal-cycle quirk). Marks it for the seasonal clock: within its recurrence window it stays recallable-with-verification instead of being dusted by absolute days. Default `ad-hoc` (don't set for one-offs). See §3.4.
 4. **A and B auto-write** — no per-item confirmation for Memorant memories.
 5. Prefer one solid memory over three thin ones; same form → update edge, don't spam cards.
 6. `needs_attention` only for: cannot redact safely, unresolved conflict, or high-risk bad memory — not for ordinary gate skips.

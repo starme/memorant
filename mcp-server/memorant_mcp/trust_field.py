@@ -19,6 +19,13 @@ _TIDE_DAYS: dict[str, tuple[float, float]] = {
     "high": (14.0, 45.0),
 }
 
+# 季节钟窗口（冻结 §3.4）：预期复现节奏内的冷门经验不判 dusty（窗口内可唤醒），
+# 但唤醒≠自动深信——降 aging 带复核语气。超出窗口才按绝对天数判 dusty。
+_SEASONAL_WINDOW_DAYS: dict[str, float] = {
+    "annual": 365.0,
+    "quarterly": 90.0,
+}
+
 # Minimum token overlap for negative-trust near-pit injection.
 _NEGATIVE_OVERLAP: dict[str, int] = {
     "low": 3,
@@ -76,6 +83,13 @@ def classify_tide(
     aging_days, dusty_days = _TIDE_DAYS.get(freshness, _TIDE_DAYS["mid"])
     age = heat_age_days(memory, now=now)
     if age >= dusty_days:
+        # 季节钟防误伤：标了 annual/quarterly 的年度类经验，在预期复现窗口内
+        # 不判 dusty（窗口内可季节性唤醒），但也不判 hot（唤醒≠自动深信，
+        # §3.4 line 122）——降为 aging 带复核语气。超出窗口才按绝对天数 dusty。
+        cadence = str(memory.get("recurrence_cadence") or "ad-hoc")
+        window = _SEASONAL_WINDOW_DAYS.get(cadence)
+        if window is not None and age < window:
+            return "aging"
         return "dusty"
     if age >= aging_days:
         return "aging"

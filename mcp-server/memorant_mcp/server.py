@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 from datetime import date
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 
 import frontmatter
 from mcp.server.fastmcp import FastMCP
@@ -422,8 +422,13 @@ async def memorant_write_memory(
     supersedes: Optional[str] = None,
     origin_session_ids: Optional[list[str]] = None,
     body: Optional[str] = None,
+    recurrence_cadence: Literal["ad-hoc", "quarterly", "annual"] = "ad-hoc",
 ) -> dict[str, Any]:
-    """Write an A/B Memory Envelope. Requires source_event_ids + evidence. Dedupes by fingerprint."""
+    """Write an A/B Memory Envelope. Requires source_event_ids + evidence. Dedupes by fingerprint.
+
+    recurrence_cadence: 季节钟（冻结 §3.4）——标 annual/quarterly 的年度类经验在
+    预期复现窗口内不判 dusty（窗口内可唤醒、仍带复核），防绝对天数一刀切误伤。默认 ad-hoc。
+    """
     try:
         refs = [EvidenceRef(**item) for item in evidence]
         write = MemoryWriteInput(
@@ -441,6 +446,7 @@ async def memorant_write_memory(
             supersedes=supersedes,
             origin_session_ids=origin_session_ids or [],
             body=body,
+            recurrence_cadence=recurrence_cadence,
         )
         result = write_memory(write)
         append_activity(
