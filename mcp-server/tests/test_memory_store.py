@@ -97,6 +97,28 @@ def test_write_requires_source_event_ids() -> None:
         )
 
 
+def test_envelope_rejects_empty_source_event_ids() -> None:
+    """MemoryEnvelope must enforce source_event_ids min_length=1, matching
+    MemoryWriteInput — otherwise legacy/migration/promotion paths that build
+    an envelope directly bypass the Distill contract."""
+    from memorant_mcp.memory_schema import LifecycleState, MemoryEnvelope
+
+    with pytest.raises(Exception):
+        MemoryEnvelope(
+            memory_id="a" * 32,
+            title="No events",
+            claim="Should fail",
+            kind=MemoryKind.semantic,
+            trust_tier=TrustTier.provisional,
+            lifecycle=LifecycleState.active,
+            confidence=0.5,
+            created_at="2026-07-28T10:00:00Z",
+            updated_at="2026-07-28T10:00:00Z",
+            source_fingerprint="b" * 64,
+            source_event_ids=[],
+        )
+
+
 def test_legacy_bug_listed_as_verified(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

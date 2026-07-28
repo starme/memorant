@@ -70,7 +70,7 @@ class MemoryEnvelope(BaseModel):
     scope: MemoryScope = Field(default_factory=MemoryScope)
     evidence: list[EvidenceRef] = Field(default_factory=list, max_length=32)
     source_event_ids: list[Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")]] = Field(
-        default_factory=list, max_length=64
+        min_length=1, max_length=64
     )
     independent_success_keys: list[Annotated[str, Field(min_length=1, max_length=256)]] = (
         Field(default_factory=list, max_length=64)
