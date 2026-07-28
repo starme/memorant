@@ -20,7 +20,10 @@ def _event_dict(event: Event, path: str) -> dict[str, Any]:
 def append_event(event_input: EventInput) -> dict[str, Any]:
     """Create one immutable event file, deduplicated by canonical payload hash."""
     event = event_input.to_event()
-    return append_event_data(event.model_dump(mode="json"), root=vault_root())
+    data = event.model_dump(mode="json")
+    if not data.get("project_key"):
+        data.pop("project_key", None)
+    return append_event_data(data, root=vault_root())
 
 
 def _referenced_event_ids() -> set[str]:

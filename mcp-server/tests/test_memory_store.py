@@ -18,6 +18,7 @@ def _write_b(project: str = "memorant") -> dict:
             evidence=[
                 EvidenceRef(source="session", excerpt="token=secret", session_id="s1")
             ],
+            source_event_ids=["b" * 32],
             origin_session_ids=["s1"],
         )
     )
@@ -72,19 +73,27 @@ def test_fingerprint_dedup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert len(list((tmp_path / "memories").glob("*.md"))) == 1
 
 
-def test_verified_requires_evidence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
-    with pytest.raises(ValueError):
-        write_memory(
-            MemoryWriteInput(
-                title="No evidence",
-                claim="Should fail",
-                kind=MemoryKind.semantic,
-                trust_tier=TrustTier.verified,
-                confidence=0.9,
-            )
+def test_write_requires_evidence_and_source_events() -> None:
+    with pytest.raises(Exception):
+        MemoryWriteInput(
+            title="No evidence",
+            claim="Should fail",
+            kind=MemoryKind.semantic,
+            trust_tier=TrustTier.verified,
+            confidence=0.9,
+            source_event_ids=["a" * 32],
+        )
+
+
+def test_write_requires_source_event_ids() -> None:
+    with pytest.raises(Exception):
+        MemoryWriteInput(
+            title="No events",
+            claim="Should fail",
+            kind=MemoryKind.semantic,
+            trust_tier=TrustTier.provisional,
+            confidence=0.5,
+            evidence=[EvidenceRef(source="t", excerpt="x")],
         )
 
 

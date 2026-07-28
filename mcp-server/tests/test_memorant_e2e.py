@@ -95,8 +95,10 @@ def test_failure_to_promotion_to_correction_pipeline(
     assert corrected["updated"]["lifecycle"] == "corrected"
 
     stopped = recall_memories("pool exhausted", project="demo", mark=False)
-    # corrected memory should not appear in normal recall
-    assert all(r.get("path") != memory["path"] for r in stopped["results"])
+    # corrected memory serves as negative-trust near-pit (反面服役), not as usable truth
+    neg = [r for r in stopped["results"] if r.get("path") == memory["path"]]
+    assert neg and neg[0].get("modality") == "negative"
+    assert "DENY" in (neg[0].get("agent_rail") or "")
 
     activity = read_activity(project="demo")
     assert activity["count"] >= 1

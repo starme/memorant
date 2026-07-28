@@ -131,7 +131,29 @@ def test_boundary_events_write_and_return_nonblocking_context(
     output = json.loads(result.stdout)
     assert len(files) == 1
     assert output["hookSpecificOutput"]["hookEventName"] == hook_event_name
-    assert output["hookSpecificOutput"]["additionalContext"]
+    context = output["hookSpecificOutput"]["additionalContext"]
+    assert context
+    assert "Distill" in context
+
+
+def test_test_success_injects_proactive_distill(tmp_path: Path) -> None:
+    result, files = run_cli(
+        tmp_path,
+        {
+            "hook_event_name": "PostToolUse",
+            "session_id": "s1",
+            "cwd": "/work/project",
+            "tool_name": "Bash",
+            "tool_input": {"command": "pytest -q"},
+            "tool_response": {"stdout": "1 passed"},
+        },
+    )
+    output = json.loads(result.stdout)
+    assert len(files) == 1
+    context = output["hookSpecificOutput"]["additionalContext"]
+    assert "Distill" in context
+    assert "Do NOT ask" in context
+    assert "project_key:" in files[0].read_text() or "project_key" in files[0].read_text()
 
 
 @pytest.mark.parametrize(

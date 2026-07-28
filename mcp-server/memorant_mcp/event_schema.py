@@ -28,6 +28,9 @@ class EventInput(BaseModel):
     event_type: EventType
     session_id: str = Field(min_length=1, max_length=256)
     project: str = Field(default="unknown", min_length=1, max_length=256)
+    project_key: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{16,64}$", max_length=64
+    )
     source: str = Field(min_length=1, max_length=128)
     tool_name: str | None = Field(default=None, max_length=128)
     outcome: str | None = Field(default=None, max_length=64)
@@ -50,6 +53,8 @@ class EventInput(BaseModel):
             "evidence_excerpt": data.get("evidence_excerpt"),
             "tags": data.get("tags") or [],
         }
+        if data.get("project_key"):
+            payload["project_key"] = data.get("project_key")
         import json
 
         return json.dumps(
