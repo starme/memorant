@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from .memory_schema import LifecycleState, TrustTier
+from .memory_schema import (
+    EvidenceRef,
+    LifecycleState,
+    MemoryKind,
+    MemoryScope,
+    MemoryWriteInput,
+    TrustTier,
+)
 from .memory_store import read_memory, update_memory_fields, write_memory
-from .memory_schema import EvidenceRef, MemoryKind, MemoryScope, MemoryWriteInput
 
 FeedbackAction = Literal[
     "adopted",
@@ -130,18 +137,25 @@ def apply_feedback(
         return {"feedback": action, "path": current["path"], "unchanged": True}
 
     if action in {"corrected", "contradicted"}:
+        # User-confirmed delist: no replacement → rejected (audited negative);
+        # with replacement_claim → corrected + new memory (evolution/correction pair).
+        if action == "contradicted":
+            next_lifecycle = LifecycleState.superseded.value
+        elif replacement_claim:
+            next_lifecycle = LifecycleState.corrected.value
+        else:
+            next_lifecycle = LifecycleState.rejected.value
         updated = update_memory_fields(
             current["path"],
-            {
-                "lifecycle": (
-                    LifecycleState.corrected.value
-                    if action == "corrected"
-                    else LifecycleState.superseded.value
-                )
-            },
+            {"lifecycle": next_lifecycle},
         )
         replacement = None
         if replacement_claim:
+            prior_ids = current.get("source_event_ids") or []
+            if not isinstance(prior_ids, list) or not prior_ids:
+                # Feedback corrections must still satisfy write contract.
+                seed = (current.get("memory_id") or current.get("path") or "feedback").encode()
+                prior_ids = [hashlib.md5(seed).hexdigest()]
             write = MemoryWriteInput(
                 title=f"Correction: {current.get('title')}",
                 claim=replacement_claim,
@@ -156,6 +170,7 @@ def apply_feedback(
                         session_id=session_id,
                     )
                 ],
+                source_event_ids=[str(item) for item in prior_ids][:64],
                 supersedes=current.get("path"),
                 origin_session_ids=[session_id] if session_id else [],
             )

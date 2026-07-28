@@ -20,6 +20,7 @@ def _provisional(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
             evidence=[
                 EvidenceRef(source="log", excerpt="pool exhausted", session_id="s-origin")
             ],
+            source_event_ids=["d" * 32],
             origin_session_ids=["s-origin"],
         )
     )
@@ -66,3 +67,18 @@ def test_contradiction_supersedes_and_writes_replacement(
     assert result["feedback"] == "contradicted"
     assert result["updated"]["lifecycle"] == "superseded"
     assert result["replacement"]["path"].startswith("memories/")
+
+
+def test_correct_without_replacement_marks_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mem = _provisional(tmp_path, monkeypatch)
+    result = apply_feedback(
+        mem["path"],
+        "corrected",
+        note="user confirmed delist",
+        session_id="s3",
+    )
+    assert result["feedback"] == "corrected"
+    assert result["updated"]["lifecycle"] == "rejected"
+    assert result.get("replacement") is None

@@ -31,6 +31,7 @@ class LifecycleState(str, Enum):
     active = "active"
     reinforced = "reinforced"
     corrected = "corrected"
+    rejected = "rejected"  # audited delist / negative-trust; user-confirmed
     superseded = "superseded"
 
 
@@ -47,6 +48,9 @@ class MemoryScope(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     project: str | None = Field(default=None, max_length=256)
+    project_key: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{16,64}$", max_length=64
+    )
     stack: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
         default_factory=list, max_length=16
     )
@@ -97,6 +101,7 @@ class MemoryEnvelope(BaseModel):
                 LifecycleState.active,
                 LifecycleState.reinforced,
                 LifecycleState.corrected,
+                LifecycleState.rejected,
                 LifecycleState.superseded,
             }:
                 raise ValueError("verified memory requires active/reinforced lifecycle")
@@ -121,7 +126,7 @@ class MemoryWriteInput(BaseModel):
     scope: MemoryScope = Field(default_factory=MemoryScope)
     evidence: list[EvidenceRef] = Field(default_factory=list, max_length=32)
     source_event_ids: list[Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")]] = Field(
-        default_factory=list, max_length=64
+        min_length=1, max_length=64
     )
     related: list[Annotated[str, Field(min_length=1, max_length=256)]] = Field(
         default_factory=list, max_length=32
@@ -131,6 +136,12 @@ class MemoryWriteInput(BaseModel):
         default_factory=list, max_length=32
     )
     body: str | None = Field(default=None, max_length=20_000)
+
+    @model_validator(mode="after")
+    def _require_evidence_hooks(self) -> "MemoryWriteInput":
+        if not self.evidence:
+            raise ValueError("memory write requires at least one evidence hook")
+        return self
 
     def fingerprint(self) -> str:
         payload = {
