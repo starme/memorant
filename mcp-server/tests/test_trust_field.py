@@ -100,6 +100,29 @@ def test_tide_thresholds_respect_freshness() -> None:
     assert classify_tide(cold, freshness="low") == "hot"
 
 
+def test_seasonal_clock_keeps_annual_out_of_dusty() -> None:
+    """冻结文档 §3.4 季节钟防误伤：冷门但正确的年度类经验用预期复现节奏量沉睡，
+    不用绝对天数一刀切。annual 记忆在预期复现窗口（365d）内即使超 dusty_days
+    也不判 dusty（窗口内可唤醒），但也不判 hot（唤醒≠自动深信，line 122）——
+    降为 aging 带复核语气。超出窗口（>365d）才按绝对天数判 dusty。"""
+    # 200d: mid 的 dusty_days=90，ad-hoc 应判 dusty；annual 在 365d 窗口内 → aging
+    cold_in_window = {
+        "updated_at": (datetime.now(timezone.utc) - timedelta(days=200)).isoformat(),
+        "created_at": (datetime.now(timezone.utc) - timedelta(days=200)).isoformat(),
+    }
+    ad_hoc = dict(cold_in_window)
+    annual = {**cold_in_window, "recurrence_cadence": "annual"}
+    assert classify_tide(ad_hoc, freshness="mid") == "dusty"
+    assert classify_tide(annual, freshness="mid") == "aging"
+    # 超出 annual 窗口（400d > 365d）→ 恢复绝对天数判定 → dusty
+    out_of_window = {
+        "updated_at": (datetime.now(timezone.utc) - timedelta(days=400)).isoformat(),
+        "created_at": (datetime.now(timezone.utc) - timedelta(days=400)).isoformat(),
+        "recurrence_cadence": "annual",
+    }
+    assert classify_tide(out_of_window, freshness="mid") == "dusty"
+
+
 def test_build_trust_view_provisional() -> None:
     from memorant_mcp.config import MemorantSettings
 

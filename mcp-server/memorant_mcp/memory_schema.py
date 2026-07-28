@@ -7,7 +7,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -88,6 +88,9 @@ class MemoryEnvelope(BaseModel):
         default_factory=list, max_length=32
     )
     legacy_path: str | None = Field(default=None, max_length=512)
+    # 季节钟：预期复现节奏（冻结 §3.4）。ad-hoc 走绝对天数；annual/quarterly 在
+    # 窗口内不判 dusty（窗口内可唤醒），但仍非 hot（唤醒≠自动深信，降 aging 复核）。
+    recurrence_cadence: Literal["ad-hoc", "quarterly", "annual"] = "ad-hoc"
 
     @field_validator("confidence")
     @classmethod
@@ -136,6 +139,7 @@ class MemoryWriteInput(BaseModel):
         default_factory=list, max_length=32
     )
     body: str | None = Field(default=None, max_length=20_000)
+    recurrence_cadence: Literal["ad-hoc", "quarterly", "annual"] = "ad-hoc"
 
     @model_validator(mode="after")
     def _require_evidence_hooks(self) -> "MemoryWriteInput":
@@ -178,6 +182,7 @@ class MemoryWriteInput(BaseModel):
             updated_at=now,
             source_fingerprint=self.fingerprint(),
             origin_session_ids=sessions,
+            recurrence_cadence=self.recurrence_cadence,
         )
 
 
