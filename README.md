@@ -4,6 +4,8 @@ Claude Code 的本地长期记忆运行时。Hooks 采集确定性事件，当�
 
 Tagline: *The companion that remembers what your agents learn.*
 
+> **v0.1.0** — 首个可用版本。主动 Distill + 默认严谨书童。完整发布记录见 [CHANGELOG](CHANGELOG.md)。
+
 ## What it does
 
 - **Observer** — Session / Failure / Test / Commit / PreCompact 写入不可变 Event Journal
@@ -32,6 +34,8 @@ $MEMORANT_ROOT/
 /plugin install memorant@memorant-marketplace
 /reload-plugins
 ```
+
+`marketplace add` 只需一次；之后 `/plugin install memorant@memorant-marketplace`（**先 add 再 install**，否则 marketplace 未注册会找不到插件）。升级时重跑 install + `/reload-plugins`。
 
 Configure root / persona (preferred: `memorant.settings.json`; `MEMORANT_ROOT` still wins):
 
@@ -94,6 +98,21 @@ Set via env `MEMORANT_<FLAG>=true|false` or `.claude/memorant.local.md` frontmat
 | `/memorant-feedback` | 纠正 / 替代 / 确认成功复用 |
 
 Legacy `/vault-*` 命令仍可用（deprecated aliases）。
+
+## Host support（Claude Code vs Cursor）
+
+本插件为 **Claude Code 专用**形态：Hooks（事件采集 + 主动 Distill reminder）、slash commands、Skill 一体部署。能力按宿主区分：
+
+| 能力 | Claude Code | Cursor |
+|---|---|---|
+| Hooks（SessionStart/PostToolUse/Stop/PreCompact/SessionEnd）| ✅ 全部 | ❌ 无 |
+| Slash commands（`/memorant-*`）| ✅ | ❌ |
+| Skill（Flow A–F + 静默门禁）| ✅ 自动加载 | ❌ |
+| MCP tools（`memorant_*` / `vault_*`）| ✅ | ✅ 仅 MCP 子集 |
+
+**Cursor 用户**：只能接 MCP tools 做被动查询/写入（`memorant_recall` / `memorant_write_memory` / `vault_search` 等），**没有主动 Distill**——journal 不会自动落痕，需手动调 `memorant_append_event` 记事件。主动闭环（P0 锚点 #1）依赖 Claude Code 的 Hooks，Cursor 下不成立。
+
+**Claude Code 用户**：装上即得全链路——修完 bug 跑测试变绿 / commit 后，宿主 Claude 读到 Hook 注入的 Distill reminder，自动跑静默门禁、主动写 A/B memory，无需口述"请提炼"。
 
 ## MCP tools
 
