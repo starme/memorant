@@ -144,7 +144,15 @@ if [[ ${#EVIDENCE_BLOCK} -gt 4000 ]]; then
 ... (evidence truncated)"
 fi
 
-# --- build additionalContext (message + lean + files + mechanical_evidence) ---
+# --- build additionalContext (mechanical facts only) ---
+# Division of labor with memorant-hook.sh (Flow E): this hook reports raw facts
+# (hash/message/lean/files/evidence) and STOPS. It does NOT instruct the host to
+# evaluate a bug threshold or ask the user — that path ("Ask the user before
+# recording", Flow B preview-ask) directly contradicts Flow E's proactive
+# "Do NOT ask, distill now" and paralyzes the host when both fire on the same
+# git.commit. Whether to distill is Flow E's call (its silent ontology gate
+# already encodes the bug threshold). The mechanical_evidence below feeds Flow E
+# as candidate evidence; nothing here tells the host what to do with it.
 CTX_FILE="$(mktemp)"
 {
   printf 'git commit landed: %s\n' "$HASH"
@@ -152,7 +160,6 @@ CTX_FILE="$(mktemp)"
   printf 'initial_verdict: %s (prefix: %s)\n' "$LEAN" "$PREFIX"
   printf '%s\n' "$FILES_BLOCK"
   printf '%s\n' "$EVIDENCE_BLOCK"
-  printf '\nIf this fixes a non-trivial bug, evaluate against the vault bug threshold (Flow B); corroborate with the mechanical_evidence below — never assert a debugging fact you cannot quote. Ask the user before recording.\n'
 } > "$CTX_FILE"
 
 # --- emit PostToolUse JSON ---

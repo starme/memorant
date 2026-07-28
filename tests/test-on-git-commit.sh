@@ -54,7 +54,11 @@ assert_contains "$OUT" 'hookEventName":"PostToolUse"'
 assert_contains "$OUT" 'git commit landed: abc1234'
 assert_contains "$OUT" 'message: fix: handle rate limit window reset'
 assert_contains "$OUT" 'initial_verdict: worth-recording (prefix: fix)'
-assert_contains "$OUT" 'never assert a debugging fact you cannot quote'
+# Flow D yields to Flow E (proactive Distill): report mechanical facts only,
+# never instruct the host to "Ask the user before recording" — that would
+# contradict Flow E's "Do NOT ask, distill now" and paralyze the host.
+assert_absent "$OUT" 'Ask the user before recording'
+assert_absent "$OUT" 'never assert a debugging fact you cannot quote'
 
 # Test 3: chore commit → not-worth-recording lean; hash from bracket form.
 echo "Test 3: chore commit yields not-worth-recording lean"
