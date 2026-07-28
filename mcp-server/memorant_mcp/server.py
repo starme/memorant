@@ -413,27 +413,30 @@ async def memorant_write_memory(
     kind: MemoryKind,
     trust_tier: TrustTier,
     confidence: Annotated[float, Field(ge=0.0, le=1.0)],
-    evidence: Optional[list[dict[str, Any]]] = None,
-    source_event_ids: Optional[list[str]] = None,
+    evidence: Annotated[list[dict[str, Any]], Field(min_length=1)],
+    source_event_ids: Annotated[list[str], Field(min_length=1)],
     project: Optional[str] = None,
+    project_key: Optional[str] = None,
     stack: Optional[list[str]] = None,
     related: Optional[list[str]] = None,
     supersedes: Optional[str] = None,
     origin_session_ids: Optional[list[str]] = None,
     body: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Write an A/B Memory Envelope. Same source_fingerprint retries are deduped."""
+    """Write an A/B Memory Envelope. Requires source_event_ids + evidence. Dedupes by fingerprint."""
     try:
-        refs = [EvidenceRef(**item) for item in (evidence or [])]
+        refs = [EvidenceRef(**item) for item in evidence]
         write = MemoryWriteInput(
             title=title,
             claim=claim,
             kind=kind,
             trust_tier=trust_tier,
             confidence=confidence,
-            scope=MemoryScope(project=project, stack=stack or []),
+            scope=MemoryScope(
+                project=project, project_key=project_key, stack=stack or []
+            ),
             evidence=refs,
-            source_event_ids=source_event_ids or [],
+            source_event_ids=source_event_ids,
             related=related or [],
             supersedes=supersedes,
             origin_session_ids=origin_session_ids or [],

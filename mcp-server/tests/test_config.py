@@ -63,6 +63,7 @@ def test_auto_write_provisional_flag(
                 trust_tier=TrustTier.provisional,
                 confidence=0.4,
                 evidence=[EvidenceRef(source="t", excerpt="x", session_id="s")],
+                source_event_ids=["c" * 32],
             )
         )
 

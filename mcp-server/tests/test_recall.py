@@ -20,6 +20,7 @@ def test_verified_outranks_provisional(
             confidence=0.4,
             scope={"project": "app"},
             evidence=[EvidenceRef(source="chat", excerpt="prefer redis", session_id="s1")],
+            source_event_ids=["e" * 32],
             origin_session_ids=["s1"],
         )
     )
@@ -34,6 +35,7 @@ def test_verified_outranks_provisional(
             evidence=[
                 EvidenceRef(source="incident", excerpt="cache outage fixed", session_id="s1")
             ],
+            source_event_ids=["f" * 32],
             origin_session_ids=["s1"],
         )
     )

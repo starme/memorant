@@ -62,12 +62,45 @@ def _find_by_fingerprint(fingerprint: str) -> dict[str, Any] | None:
     return None
 
 
+def _inherit_scope_from_events(write: MemoryWriteInput) -> MemoryWriteInput:
+    """Fill scope.project_key / project from source journal events when missing."""
+    if write.scope.project_key and write.scope.project:
+        return write
+    root = Path(vault_root())
+    key = write.scope.project_key
+    label = write.scope.project
+    for event_id in write.source_event_ids:
+        for path in (root / "journal").glob(f"**/*-{event_id}.md"):
+            try:
+                meta = dict(frontmatter.load(path).metadata)
+            except (OSError, TypeError, UnicodeDecodeError, ValueError, yaml.YAMLError):
+                continue
+            if not key and isinstance(meta.get("project_key"), str):
+                key = meta["project_key"]
+            if not label and isinstance(meta.get("project"), str):
+                label = meta["project"]
+            break
+        if key and label:
+            break
+    if key == write.scope.project_key and label == write.scope.project:
+        return write
+    scope = write.scope.model_copy(
+        update={
+            "project_key": key or write.scope.project_key,
+            "project": label or write.scope.project,
+        }
+    )
+    return write.model_copy(update={"scope": scope})
+
+
 def write_memory(write: MemoryWriteInput) -> dict[str, Any]:
     flags = load_flags()
     if write.trust_tier == TrustTier.verified and not flags.auto_write_verified:
         raise ValueError("auto_write_verified is disabled")
     if write.trust_tier == TrustTier.provisional and not flags.auto_write_provisional:
         raise ValueError("auto_write_provisional is disabled")
+
+    write = _inherit_scope_from_events(write)
 
     existing = _find_by_fingerprint(write.fingerprint())
     if existing:
@@ -124,7 +157,10 @@ def update_memory_fields(memory_id_or_path: str, updates: dict[str, Any]) -> dic
     for key in forbidden:
         updates.pop(key, None)
     current.update(updates)
-    current["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    if "updated_at" not in updates:
+        current["updated_at"] = (
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
     # Re-validate when possible.
     try:
         envelope = MemoryEnvelope(**{k: v for k, v in current.items() if k != "type"})

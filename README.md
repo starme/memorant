@@ -33,14 +33,19 @@ $MEMORANT_ROOT/
 /reload-plugins
 ```
 
-Configure root (new names preferred; old names still work):
+Configure root / persona (preferred: `memorant.settings.json`; `MEMORANT_ROOT` still wins):
 
 ```bash
+# ~/.claude/memorant.settings.json — also <repo>/.claude/memorant.settings.json
+# { "root": "/path/to/Memorant", "persona": { "behavior": { "preset": "rigorous" }, "tone": "warm" } }
+
 export MEMORANT_ROOT=/path/to/your/knowledge-base
-# fallback: VAULT_ROOT, .claude/memorant.local.md, .claude/vault.local.md
+# fallback: settings.json root → memorant.local.md → VAULT_ROOT → vault.local.md
 mkdir -p "$MEMORANT_ROOT"/{journal,memories,activity,bugs,snippets,daily,arch}
 echo 0 > "$MEMORANT_ROOT"/arch/.sequence
 ```
+
+Defaults: behavior `rigorous`, tone `warm`. Recall is trust-aware（敢用 / 可疑 HOLD / 负信任 DENY / 尘封 VERIFY-FIRST）。
 
 **Requirements:** `uvx` (`uv`) for the Python MCP server.
 

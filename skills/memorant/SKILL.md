@@ -141,22 +141,60 @@ The `mechanical_evidence` scan reads the session transcript via the hook's `tran
 
 ---
 
-## Flow E — Distill pending journal events
+## Flow E — Distill pending journal events (proactive; required)
 
-**Trigger**: SessionEnd, PreCompact, after `test.success`/`test.failure`/`git.commit`, or when Activity reminds about pending events.
+**Trigger (deterministic — do not wait for the user to say「提炼」)**:
+- Hook `additionalContext` after `test.success` / meaningful `git.commit`
+- `PreCompact` / `SessionEnd` distill reminders
+- Activity notes pending events
 
-1. Call `memorant_list_pending_events` (optionally filter by `session_id` / `project`).
+**Hard rule — proactive**: When a Distill trigger appears, **immediately** run this flow in the current turn. Do **not** ask whether to distill. Auto-write qualified forms; skip silently (journal remains) when the ontology gate fails.
+
+**Persona** (from `memorant.settings.json`, defaults `rigorous` + `tone=warm`): follow Distill `additionalContext` guidance for selectivity/voice/guardrail. Never let persona break constitution — no silent reject, no fake forms, privacy > diligence, Agent injection stays neutral structured.
+
+### Silent ontology gate (internal; never a user questionnaire)
+
+Before each `memorant_write_memory`, answer internally:
+
+1. Wood vs form — is there a migratable **form** (scene fingerprint + bounded claim), not only episodic noise?
+2. Does the form still hold if tonight's paths/ticket IDs are stripped?
+3. Am I registering a form, or giving a fleeting impression a passport?
+4. Does an existing memory share the same form? → reinforce / evolve / correct — do not mint a near-duplicate.
+5. Modality: usable / suspicious / negative-trust / dusty — tone must match (never deep-trust a dusty form).
+6. Is a false form worse than skipping? If yes and unsure → skip write.
+7. What is the single core entity and its edge to existing nodes?
+
+Gate fail → do **not** call `memorant_write_memory`. Optionally note skip aggregates at SessionEnd (`skip:no_form`, `skip:episodic_only`, `skip:duplicate_same_form`). Never quiz the user with ontology questions.
+
+### Scene fingerprint (work-general; required on write)
+
+Include in body or claim scaffolding (general slots, not stack dialects as primary):
+
+- problem shape / trigger appearance / key constraints / decision type / weak context anchors
+- one applicability sentence in plain language  
+No fingerprint → gate fail (懂得不记).
+
+### Write contract (refuse to claim completion if missing)
+
+1. Call `memorant_list_pending_events` (optional `session_id` / `project`).
 2. Distill **only** from those events — never invent process details from model memory.
-3. For each candidate, produce: `claim`, `kind`, `confidence`, `scope`, `evidence[]` (quoting event excerpts), `source_event_ids`, and an A/B rationale.
-4. Call `memorant_write_memory` — **A and B auto-write**; do not ask per-item confirmation.
-5. Skip / Activity `needs_attention` when: cannot redact safely, no citable source, or unresolved conflict.
+3. For each **gate-passing** candidate, call `memorant_write_memory` with **all** of:
+   - `claim`, `kind`, `confidence`, `trust_tier`
+   - `evidence[]` (≥1) quoting event excerpts
+   - `source_event_ids` (≥1) from pending events
+   - `origin_session_ids` when known
+   - `project` / `project_key` inherited from source events (key must match sources)
+4. **A and B auto-write** — no per-item confirmation for Memorant memories.
+5. Prefer one solid memory over three thin ones; same form → update edge, don't spam cards.
+6. `needs_attention` only for: cannot redact safely, unresolved conflict, or high-risk bad memory — not for ordinary gate skips.
 
-## Flow F — Trust Route (A/B)
+## Flow F — Trust Route (A/B + field)
 
 - **A (`verified`)**: failure→fix→success closed loop (or tool-proven fact) with citable evidence → `trust_tier=verified`, `lifecycle=active`.
-- **B (`provisional`)**: architecture preference, unverified root cause, thin evidence → still auto-write with `trust_tier=provisional` (recall labels 待验证, downweighted).
+- **B (`provisional`)**: architecture preference, unverified root cause, thin evidence → still auto-write with `trust_tier=provisional` (recall: suspicious / HOLD).
 - **B→A**: only via `memorant_promote` / `memorant_feedback(successful_reuse)` when a **different** `session_id` supplies a **success** outcome. Same-session retries do not promote.
-- Conflicts: mark old memory `corrected`/`superseded`; write a new memory — never silent overwrite.
+- Conflicts: via user-confirmed `memorant_feedback` — with `replacement_claim` → `corrected` + new memory; without → `rejected` (audited delist). Never silent overwrite / silent reject.
+- **Recall modalities**: usable / suspicious / negative-trust (`corrected`/`rejected` 反面服役 + Agent `DENY`) / dusty (久未验证 → `VERIFY-FIRST`, no deep-trust steps). Obey injected rails; human short-asks stay rare.
 
 ## Flow G — Feedback & Activity
 

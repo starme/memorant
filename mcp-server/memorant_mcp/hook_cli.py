@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .config import load_flags
+    from .config import load_flags, load_settings, persona_distill_guidance
     from .hook_core import append_hook_event, discover_root
 except ImportError:  # Direct plugin-source execution by the shell shim.
-    from config import load_flags  # type: ignore
+    from config import load_flags, load_settings, persona_distill_guidance  # type: ignore
     from hook_core import append_hook_event, discover_root  # type: ignore
 
 _EVENT_MAP = {
@@ -28,17 +28,87 @@ _TEST_COMMAND = re.compile(
 )
 RECALL_MAX_CHARS = 8000
 
+_DISTILL_NOW = (
+    "Memorant Distill (required, proactive): immediately call "
+    "memorant_list_pending_events, run silent ontology gate, then "
+    "memorant_write_memory for each qualified form (auto-write A/B). "
+    "Do NOT ask the user whether to distill. Skip without writing when "
+    "no migratable form (leave journal only). Never invent evidence."
+)
+
+
+def _distill_block(extra: str = "") -> str:
+    """Distill instruction plus persona guidance (fail-open)."""
+    parts = [_DISTILL_NOW]
+    if extra:
+        parts.insert(0, extra)
+    try:
+        parts.append(persona_distill_guidance(load_settings()))
+    except Exception:
+        pass
+    return _join_context(*parts)
+
+
+def _bash_failure_evidence(payload: dict[str, Any]) -> str:
+    """Thicken Bash failure evidence: command + exit + stderr/stdout labels."""
+    tool_input = payload.get("tool_input")
+    response = payload.get("tool_response")
+    command = _text(tool_input.get("command"), 4096) if isinstance(tool_input, dict) else ""
+    stdout = ""
+    stderr = ""
+    exit_code: Any = None
+    if isinstance(response, dict):
+        stdout = _text(response.get("stdout"), 4096)
+        stderr = _text(response.get("stderr"), 4096)
+        exit_code = response.get("exit_code")
+    if exit_code is None:
+        exit_code = payload.get("exit_code")
+    error = _text(payload.get("error"), 4096)
+    parts: list[str] = []
+    if command:
+        parts.append(f"command: {command}")
+    if isinstance(exit_code, int) or (
+        isinstance(exit_code, str) and exit_code.strip()
+    ):
+        parts.append(f"exit_code: {exit_code}")
+    if stderr:
+        parts.append(f"stderr: {stderr}")
+    if error and error not in stderr:
+        parts.append(f"error: {error}")
+    if stdout:
+        parts.append(f"stdout: {stdout}")
+    return "\n".join(parts)
+
 
 def _text(value: Any, limit: int) -> str:
     return value[:limit] if isinstance(value, str) else ""
 
 
-def _project(payload: dict[str, Any]) -> str:
-    explicit = _text(payload.get("project"), 256).strip()
-    if explicit:
-        return explicit
-    cwd = _text(payload.get("cwd"), 1024).rstrip("/")
-    return Path(cwd).name[:256] if cwd else "unknown"
+def _project_fields(payload: dict[str, Any]) -> tuple[str, str | None]:
+    """Return (project_label, project_key)."""
+    explicit = _text(payload.get("project"), 256).strip() or None
+    cwd = _text(payload.get("cwd"), 1024).rstrip("/") or None
+    try:
+        from .project_identity import resolve_project_identity
+
+        identity = resolve_project_identity(cwd, explicit_project=explicit)
+        return identity.project_label, identity.project_key
+    except Exception:
+        try:
+            from project_identity import resolve_project_identity  # type: ignore
+
+            identity = resolve_project_identity(cwd, explicit_project=explicit)
+            return identity.project_label, identity.project_key
+        except Exception:
+            if explicit:
+                return explicit, None
+            if cwd:
+                return Path(cwd).name[:256] or "unknown", None
+            return "unknown", None
+
+
+def _join_context(*parts: str) -> str:
+    return "\n\n".join(part.strip() for part in parts if part and part.strip())
 
 
 def _post_tool_event(
@@ -147,7 +217,7 @@ def _maybe_append(event: dict[str, Any]) -> bool:
 
 def process(payload: dict[str, Any]) -> dict[str, Any]:
     hook_name = _text(payload.get("hook_event_name"), 64)
-    project = _project(payload)
+    project, project_key = _project_fields(payload)
 
     if hook_name == "UserPromptSubmit":
         prompt = _text(payload.get("prompt"), 2000) or _text(
@@ -162,6 +232,7 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
                 "event_type": "session.start",
                 "session_id": _text(payload.get("session_id"), 256) or "unknown",
                 "project": project,
+                "project_key": project_key,
                 "source": "claude-code-hook",
                 "tool_name": None,
                 "outcome": "observed",
@@ -190,17 +261,10 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
         outcome = "failure"
         selected = _post_tool_event(payload, hook_failed=True)
         if selected is not None and selected[0] == "test.failure":
-            event_type, outcome, command_evidence = selected
-        else:
-            command_evidence = ""
-        evidence = _text(payload.get("error"), 4096)
+            event_type, outcome, _command_evidence = selected
+        evidence = _bash_failure_evidence(payload)
         if not evidence:
-            response = payload.get("tool_response")
-            if isinstance(response, dict):
-                evidence = _text(response.get("stderr"), 4096)
-        evidence = "\n".join(
-            part for part in (command_evidence, evidence) if part
-        )
+            evidence = _text(payload.get("error"), 4096)
     else:
         evidence = _text(payload.get("reason"), 1024) or _text(
             payload.get("error"), 1024
@@ -211,6 +275,7 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
             "event_type": event_type,
             "session_id": _text(payload.get("session_id"), 256) or "unknown",
             "project": project,
+            "project_key": project_key,
             "source": "claude-code-hook",
             "tool_name": _text(payload.get("tool_name"), 128) or None,
             "outcome": outcome,
@@ -230,24 +295,42 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
         return {}
 
     if hook_name == "SessionEnd":
+        parts = [
+            _distill_block(
+                "Memorant Distill (required before leave): sweep remaining pending "
+                "events now — silent ontology gate; write qualified forms; "
+                "aggregate skip reason codes in Activity if applicable. "
+                "Do NOT ask whether to distill."
+            )
+        ]
         try:
-            if not load_flags().activity_summary:
-                return {}
+            if load_flags().activity_summary:
+                summary_fn = _load_session_summary()
+                if summary_fn is not None:
+                    try:
+                        summary = summary_fn(project=project)
+                    except Exception:
+                        summary = ""
+                    if summary:
+                        parts.append(summary)
         except Exception:
-            return {}
-        summary_fn = _load_session_summary()
-        summary = ""
-        if summary_fn is not None:
-            try:
-                summary = summary_fn(project=project)
-            except Exception:
-                summary = ""
-        return _context_output(hook_name, summary)
+            pass
+        return _context_output(hook_name, _join_context(*parts))
 
     if hook_name == "PreCompact":
         return _context_output(
             hook_name,
-            "Memorant: pending journal events may need Distill before compact.",
+            _distill_block(
+                "Memorant Distill (required before compact): pending journal events "
+                "must be distilled now or they may be lost."
+            ),
+        )
+
+    if wrote and event_type in {"test.success", "git.commit"}:
+        recorded = "Memorant journal event recorded."
+        return _context_output(
+            hook_name,
+            _join_context(recorded, f"Trigger: {event_type}.", _distill_block()),
         )
 
     if wrote:
