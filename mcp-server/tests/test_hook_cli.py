@@ -116,24 +116,41 @@ def test_structured_exit_code_overrides_post_tool_success(tmp_path: Path) -> Non
     assert "outcome: failure" in files[0].read_text()
 
 
-@pytest.mark.parametrize("hook_event_name", ["PreCompact", "SessionEnd"])
-def test_boundary_events_write_and_return_nonblocking_context(
-    tmp_path: Path, hook_event_name: str
-) -> None:
+def test_precompact_emits_plain_text_context(tmp_path: Path) -> None:
+    # PreCompact does not accept hookSpecificOutput.additionalContext; its context
+    # is injected via stdout plain text (appended as custom compact instructions).
     result, files = run_cli(
         tmp_path,
         {
-            "hook_event_name": hook_event_name,
+            "hook_event_name": "PreCompact",
             "session_id": "s1",
             "cwd": "/work/project",
         },
     )
-    output = json.loads(result.stdout)
+    assert result.returncode == 0
+    # PreCompact writes a journal event too.
     assert len(files) == 1
-    assert output["hookSpecificOutput"]["hookEventName"] == hook_event_name
-    context = output["hookSpecificOutput"]["additionalContext"]
-    assert context
-    assert "Distill" in context
+    stdout = result.stdout.strip()
+    # Plain text, not JSON: must fail to parse as JSON and carry the distill block.
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(stdout)
+    assert "Distill" in stdout
+
+
+def test_session_end_emits_empty_and_writes_journal(tmp_path: Path) -> None:
+    # SessionEnd cannot inject context into the model (session already ended);
+    # it only writes the journal event for audit and returns empty.
+    result, files = run_cli(
+        tmp_path,
+        {
+            "hook_event_name": "SessionEnd",
+            "session_id": "s1",
+            "cwd": "/work/project",
+        },
+    )
+    assert result.returncode == 0
+    assert json.loads(result.stdout) == {}
+    assert len(files) == 1
 
 
 def test_test_success_injects_proactive_distill(tmp_path: Path) -> None:
