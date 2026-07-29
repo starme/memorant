@@ -7,7 +7,7 @@ from memorant_mcp.config import (
     load_settings,
     persona_distill_guidance,
 )
-from memorant_mcp.hook_cli import process
+from memorant_mcp.hook_cli import PLAIN_TEXT, process
 from memorant_mcp.hook_core import discover_root
 
 
@@ -149,7 +149,11 @@ def test_distill_context_includes_persona(
             "cwd": str(tmp_path),
         }
     )
-    ctx = out["hookSpecificOutput"]["additionalContext"]
+    # PreCompact returns a plain-text marker (context reaches the model via
+    # stdout, not hookSpecificOutput.additionalContext).
+    assert isinstance(out, str)
+    assert out.startswith(PLAIN_TEXT)
+    ctx = out[len(PLAIN_TEXT) :]
     assert "Memorant Distill" in ctx
     assert "persona: behavior=rigorous" in ctx
 

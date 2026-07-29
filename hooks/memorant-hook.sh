@@ -48,6 +48,23 @@ PY
 
 SIZE="$(wc -c < "$OUTPUT" 2>/dev/null | tr -d ' ')"
 [[ "$SIZE" =~ ^[0-9]+$ && "$SIZE" -le 10000 && "$SIZE" -gt 0 ]] || emit_empty
+
+# Dispatch by hook type. PreCompact's context reaches the model as stdout plain
+# text (it does not accept hookSpecificOutput.additionalContext); passing that
+# through JSON validation would discard it. Other hooks emit JSON, validated.
+HOOK_EVENT="$(python3 -B -S -c '
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("hook_event_name") or "")
+except Exception:
+    print("")
+' "$INPUT" 2>/dev/null)"
+
+if [[ "$HOOK_EVENT" == "PreCompact" ]]; then
+  cat "$OUTPUT" 2>/dev/null || emit_empty
+  exit 0
+fi
+
 python3 -c 'import json,sys; json.load(sys.stdin)' < "$OUTPUT" >/dev/null 2>&1 \
   || emit_empty
 cat "$OUTPUT" 2>/dev/null || emit_empty

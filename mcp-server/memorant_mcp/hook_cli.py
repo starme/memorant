@@ -49,6 +49,18 @@ def _distill_block(extra: str = "") -> str:
     return _join_context(*parts)
 
 
+# Sentinel returned by process() when the hook's context must reach the model as
+# stdout plain text rather than hookSpecificOutput.additionalContext. PreCompact
+# is the only hook whose context channel is stdout (it does not accept
+# additionalContext); the shim forwards its stdout verbatim without JSON checks.
+PLAIN_TEXT = "__memorant_plain_text__"
+
+
+def _plain(context: str) -> str:
+    """Mark a context payload for plain-text stdout emission (PreCompact)."""
+    return PLAIN_TEXT + context
+
+
 def _bash_failure_evidence(payload: dict[str, Any]) -> str:
     """Thicken Bash failure evidence: command + exit + stderr/stdout labels."""
     tool_input = payload.get("tool_input")
@@ -149,20 +161,6 @@ def _load_recall():
             return format_recall_context, recall_memories
         except Exception:
             return None, None
-
-
-def _load_session_summary():
-    try:
-        from .activity import session_end_summary
-
-        return session_end_summary
-    except Exception:
-        try:
-            from activity import session_end_summary  # type: ignore
-
-            return session_end_summary
-        except Exception:
-            return None
 
 
 def _recall_context(query: str, project: str, trigger: str) -> str:
@@ -295,35 +293,21 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
         return {}
 
     if hook_name == "SessionEnd":
-        parts = [
-            _distill_block(
-                "Memorant Distill (required before leave): sweep remaining pending "
-                "events now — silent ontology gate; write qualified forms; "
-                "aggregate skip reason codes in Activity if applicable. "
-                "Do NOT ask whether to distill."
-            )
-        ]
-        try:
-            if load_flags().activity_summary:
-                summary_fn = _load_session_summary()
-                if summary_fn is not None:
-                    try:
-                        summary = summary_fn(project=project)
-                    except Exception:
-                        summary = ""
-                    if summary:
-                        parts.append(summary)
-        except Exception:
-            pass
-        return _context_output(hook_name, _join_context(*parts))
+        # SessionEnd cannot inject context into the model (the session is over,
+        # there is no subsequent turn to receive it). Distill still runs via the
+        # journal event written above; any needed recall happens on the next
+        # SessionStart. Emit empty output — do not attempt additionalContext.
+        return {}
 
     if hook_name == "PreCompact":
-        return _context_output(
-            hook_name,
+        # PreCompact does not accept hookSpecificOutput.additionalContext; its
+        # context is injected via stdout plain text (appended as custom compact
+        # instructions). Return a plain-text marker consumed by main().
+        return _plain(
             _distill_block(
                 "Memorant Distill (required before compact): pending journal events "
                 "must be distilled now or they may be lost."
-            ),
+            )
         )
 
     if wrote and event_type in {"test.success", "git.commit"}:
@@ -344,13 +328,18 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
-    output: dict[str, Any] = {}
+    output: dict[str, Any] | str = {}
     try:
         payload = json.load(sys.stdin)
         if isinstance(payload, dict):
             output = process(payload)
     except Exception:
         output = {}
+    if isinstance(output, str) and output.startswith(PLAIN_TEXT):
+        # PreCompact: emit context as stdout plain text (no JSON envelope).
+        text = output[len(PLAIN_TEXT) :][:RECALL_MAX_CHARS]
+        sys.stdout.write(text + "\n")
+        return
     rendered = json.dumps(output, ensure_ascii=False, separators=(",", ":"))
     if len(rendered) > 10_000:
         rendered = "{}"
