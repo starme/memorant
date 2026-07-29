@@ -172,10 +172,12 @@ def test_server_keeps_legacy_tool_names() -> None:
 def test_append_event_tool_schema_exposes_enum_and_limits() -> None:
     tools = asyncio.run(mcp.list_tools())
     tool = next(item for item in tools if item.name == "memorant_append_event")
-    properties = tool.inputSchema["properties"]
+    properties = tool.parameters["properties"]
 
-    event_type_ref = properties["event_type"]["$ref"].removeprefix("#/$defs/")
-    assert tool.inputSchema["$defs"][event_type_ref]["enum"] == [
+    # fastmcp 3.x inlines the enum on the field instead of routing through
+    # $ref/$defs; the asserted contract (the 9 event types + length caps) is
+    # unchanged, only the schema shape differs.
+    assert properties["event_type"]["enum"] == [
         "session.start",
         "session.end",
         "context.precompact",

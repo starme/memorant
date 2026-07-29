@@ -1,10 +1,13 @@
 [project]
 name = "memorant-mcp"
 version = "0.1.0"
-description = "MCP server for 书童 · Memorant: search and record development experience in a local Markdown knowledge base."
+description = "MCP server for 书童 · Memorant: local long-term memory runtime with journal events, A/B Memory Envelopes, and trust-aware recall."
 requires-python = ">=3.10"
 dependencies = [
-    "mcp[cli]>=1.2.0",
+    # FastMCP moved out of the mcp SDK at mcp 2.0; the standalone `fastmcp`
+    # package is the supported home for `from fastmcp import FastMCP`. It pulls
+    # `mcp` as a transitive dependency, so we don't pin mcp directly here.
+    "fastmcp>=2.0",
     "pydantic>=2.0",
     "python-frontmatter>=1.1",
 ]
