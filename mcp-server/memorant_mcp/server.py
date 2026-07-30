@@ -21,7 +21,7 @@ from datetime import date
 from typing import Annotated, Any, Literal, Optional
 
 import frontmatter
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from pydantic import Field
 
 from .activity import append_activity, read_activity, session_end_summary
@@ -52,8 +52,12 @@ from .search import search as do_search
 mcp = FastMCP(
     "memorant",
     instructions=(
-        "书童 · Memorant: search and record development experience in a "
-        "local Markdown knowledge base. Legacy vault_* tools remain supported."
+        "书童 · Memorant: local long-term memory runtime. Hooks capture "
+        "deterministic journal events; the host Claude distills them into "
+        "A/B Memory Envelopes (verified / provisional) with explicit trust "
+        "fields; recall ranks memories by trust + tide. Markdown is the "
+        "only source of truth. Legacy vault_* tools (bugs/snippets/daily/"
+        "arch) remain as a compat layer for Obsidian-facing notes."
     ),
 )
 
