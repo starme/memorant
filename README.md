@@ -23,7 +23,7 @@ $MEMORANT_ROOT/
 ├── memories/<memory_id>.md                 A/B Memory Envelopes
 ├── activity/YYYY-MM-DD.md                  append-only audit trail
 ├── .memorant/                              rebuildable cursors/locks only
-├── bugs/ snippets/ daily/ arch/            legacy vault (still read)
+├── bugs/ snippets/ daily/ arch/            legacy notes (Obsidian-facing, still read)
 └── arch/.sequence
 ```
 
@@ -52,6 +52,26 @@ echo 0 > "$MEMORANT_ROOT"/arch/.sequence
 Defaults: behavior `rigorous`, tone `warm`. Recall is trust-aware（敢用 / 可疑 HOLD / 负信任 DENY / 尘封 VERIFY-FIRST）。
 
 **Requirements:** `uvx` (`uv`) for the Python MCP server.
+
+### Testing
+
+Python tests use the project environment and must run from `mcp-server/`:
+
+```bash
+cd mcp-server
+uv sync --dev
+uv run python -m pytest
+```
+
+The shell hooks intentionally use stdlib-only `python3 -B -S` and are tested from the repository root:
+
+```bash
+cd ..
+bash tests/test-memorant-hook.sh
+bash tests/test-on-git-commit.sh
+```
+
+Local `.venv/` directories and the generated `mcp-server/uv.lock` are disposable and are not part of the plugin distribution.
 
 ### Privacy model
 
@@ -92,12 +112,12 @@ Set via env `MEMORANT_<FLAG>=true|false` or `.claude/memorant.local.md` frontmat
 
 | Command | Purpose |
 |---|---|
-| `/memorant-search` | 搜索 legacy vault |
+| `/memorant-search` | 搜索 legacy notes（bugs/snippets/ADR） |
 | `/memorant-log` / `/memorant-adr` | 兼容的人工记录入口 |
 | `/memorant-activity` | 当天 Memory Activity |
 | `/memorant-feedback` | 纠正 / 替代 / 确认成功复用 |
 
-Legacy `/vault-*` 命令仍可用（deprecated aliases）。
+Legacy `/vault-*` 命令仍可用（deprecated aliases，指向同一套 legacy notes 工具）。
 
 ## Host support（Claude Code vs Cursor）
 

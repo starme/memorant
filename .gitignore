@@ -21,3 +21,6 @@ build/
 
 # Docs moved out of version control (kept locally)
 docs/
+
+# DevFlow generated contracts
+.devflow/

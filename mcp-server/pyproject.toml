@@ -20,7 +20,11 @@ memorant-hook = "memorant_mcp.hook_cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.8",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [build-system]
 requires = ["hatchling"]
