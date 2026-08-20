@@ -141,6 +141,10 @@ def test_migrate_is_idempotent(legacy_root: Path) -> None:
     first_ids = set(first["memory_ids"])
     second = migration.migrate_legacy(str(legacy_root))
     assert second["migrated"] == 0
+    assert second["skipped_idempotent"] == first["total"]
+    assert all(
+        item["status"] == "skipped_idempotent" for item in second["items"]
+    )
     assert set(second["memory_ids"]) <= first_ids
     assert len(_memories(legacy_root)) == len(first_ids)
 
@@ -172,6 +176,26 @@ def test_failure_isolation_continues_other_entries(tmp_path: Path, monkeypatch: 
     statuses = {it["legacy_path"]: it["status"] for it in result["items"]}
     assert statuses["snippets/good.md"] == "migrated"
     assert statuses["bugs/broken.md"] == "failed"
+
+
+def test_failure_report_redacts_root_path_and_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "private-root"
+    monkeypatch.setenv("MEMORANT_ROOT", str(root))
+    _write(root / "bugs" / "broken.md", "\x00invalid\xff token=secret-value")
+
+    def fail_with_sensitive_error(
+        migration_root: Path, unit: dict[str, object], dry_run: bool
+    ) -> dict[str, object]:
+        raise RuntimeError(f"failed at {migration_root}/private token=secret-value")
+
+    monkeypatch.setattr(migration, "_migrate_one", fail_with_sensitive_error)
+    result = migration.migrate_legacy(str(root))
+    report = (root / result["report_path"]).read_text(encoding="utf-8")
+    assert str(root) not in report
+    assert "secret-value" not in report
+    assert "<MEMORANT_ROOT>" in report
 
 
 def test_redacts_secrets_in_memory_and_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

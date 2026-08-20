@@ -67,6 +67,15 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _safe_error_message(error: Exception, root: Path) -> str:
+    """Return a report-safe error without exposing local paths or credentials."""
+    message = redact_secrets(str(error))
+    root_text = str(root.resolve())
+    if root_text:
+        message = message.replace(root_text, "<MEMORANT_ROOT>")
+    return message or "migration item failed"
+
+
 def _rel_of(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
@@ -388,7 +397,12 @@ def _migrate_one(root: Path, unit: dict[str, Any], dry_run: bool) -> dict[str, A
     existing = _existing_memory(root, memory_id)
     if existing is not None:
         if existing.get("source_fingerprint") == fingerprint:
-            return {"legacy_path": legacy_path, "memory_id": memory_id, "status": "skipped_no_form", "reason": "already migrated"}
+            return {
+                "legacy_path": legacy_path,
+                "memory_id": memory_id,
+                "status": "skipped_idempotent",
+                "reason": "already migrated",
+            }
         return {"legacy_path": legacy_path, "memory_id": memory_id, "status": "skipped_conflict", "reason": "target exists with different fingerprint"}
 
     if dry_run:
@@ -425,10 +439,10 @@ def _write_report(root: Path, timestamp: str, summary: dict[str, Any]) -> str:
         f"- 备份路径: {summary.get('backup_path') or '-'}",
         (
             f"- 统计: total={summary['total']} migrated={summary['migrated']} "
+            f"skipped_idempotent={summary['skipped_idempotent']} "
             f"skipped_no_form={summary['skipped_no_form']} "
             f"skipped_conflict={summary['skipped_conflict']} failed={summary['failed']}"
         ),
-        "",
         "## 明细",
         "",
         "| legacy_path | memory_id | status | reason |",
@@ -438,7 +452,9 @@ def _write_report(root: Path, timestamp: str, summary: dict[str, Any]) -> str:
         legacy_path = redact_secrets(str(item.get("legacy_path") or "")) or "-"
         memory_id = item.get("memory_id") or "-"
         status = str(item.get("status") or "")
-        reason = redact_secrets(str(item.get("reason") or "")) or "-"
+        reason = _safe_error_message(
+            RuntimeError(str(item.get("reason") or "")), root
+        )
         lines.append(f"| {legacy_path} | {memory_id} | {status} | {reason} |")
     lines += [
         "",
@@ -464,12 +480,15 @@ def migrate_legacy(root: str | Path, *, dry_run: bool = False) -> dict[str, Any]
         preview: list[dict[str, Any]] = []
         will_migrate = 0
         will_skip = 0
+        will_skip_idempotent = 0
         will_conflict = 0
         for unit in units:
             item = _migrate_one(base, unit, dry_run=True)
             if item["status"] == "will_migrate":
                 will_migrate += 1
                 preview.append(item)
+            elif item["status"] == "skipped_idempotent":
+                will_skip_idempotent += 1
             elif item["status"] == "skipped_conflict":
                 will_conflict += 1
             else:
@@ -478,6 +497,7 @@ def migrate_legacy(root: str | Path, *, dry_run: bool = False) -> dict[str, Any]
             "dry_run": True,
             "total": len(units),
             "will_migrate": will_migrate,
+            "will_skip_idempotent": will_skip_idempotent,
             "will_skip_no_form": will_skip,
             "will_conflict": will_conflict,
             "preview": preview,
@@ -488,6 +508,7 @@ def migrate_legacy(root: str | Path, *, dry_run: bool = False) -> dict[str, Any]
             "completed": True,
             "total": 0,
             "migrated": 0,
+            "skipped_idempotent": 0,
             "skipped_no_form": 0,
             "skipped_conflict": 0,
             "failed": 0,
@@ -501,6 +522,7 @@ def migrate_legacy(root: str | Path, *, dry_run: bool = False) -> dict[str, Any]
 
     items: list[dict[str, Any]] = []
     memory_ids: list[str] = []
+    skipped_idempotent = 0
     skipped_no_form = 0
     skipped_conflict = 0
     failed = 0
@@ -509,17 +531,19 @@ def migrate_legacy(root: str | Path, *, dry_run: bool = False) -> dict[str, Any]
     for unit in units:
         try:
             item = _migrate_one(base, unit, dry_run=False)
-        except Exception as exc:  # noqa: BLE001 — 单条失败隔离（PRD §6.1）：捕获任意异常并继续下一条
+        except Exception as exc:  # noqa: BLE001 — 单条失败隔离（PRD §6.1）
             item = {
                 "legacy_path": unit["legacy_path"],
                 "memory_id": None,
                 "status": "failed",
-                "reason": str(exc),
+                "reason": _safe_error_message(exc, base),
             }
         status = item["status"]
         if status == "migrated":
             migrated += 1
             memory_ids.append(item["memory_id"])
+        elif status == "skipped_idempotent":
+            skipped_idempotent += 1
         elif status == "skipped_conflict":
             skipped_conflict += 1
         elif status == "skipped_no_form":
@@ -534,6 +558,7 @@ def migrate_legacy(root: str | Path, *, dry_run: bool = False) -> dict[str, Any]
         "backup_path": backup_path,
         "total": len(units),
         "migrated": migrated,
+        "skipped_idempotent": skipped_idempotent,
         "skipped_no_form": skipped_no_form,
         "skipped_conflict": skipped_conflict,
         "failed": failed,
@@ -547,6 +572,7 @@ def migrate_legacy(root: str | Path, *, dry_run: bool = False) -> dict[str, Any]
         "report_path": report_path,
         "total": summary["total"],
         "migrated": migrated,
+        "skipped_idempotent": skipped_idempotent,
         "skipped_no_form": skipped_no_form,
         "skipped_conflict": skipped_conflict,
         "failed": failed,

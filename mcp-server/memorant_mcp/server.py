@@ -335,8 +335,8 @@ async def memorant_migrate(
     if dry_run:
         try:
             return migrate_legacy(root, dry_run=True)
-        except Exception as e:
-            return {"error": "ERROR", "message": str(e)}
+        except Exception:
+            return {"error": "ERROR", "message": "migration preview failed"}
 
     counts = detect_legacy_data(root)
     total = sum(counts.values())
@@ -359,8 +359,8 @@ async def memorant_migrate(
 
     try:
         result = migrate_legacy(root)
-    except Exception as e:
-        return {"error": "ERROR", "message": str(e)}
+    except Exception:
+        return {"error": "ERROR", "message": "migration failed; see the local migration report"}
     return result
 
 
