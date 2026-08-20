@@ -11,7 +11,7 @@ from typing import Any
 import frontmatter
 
 from .hook_core import redact_secrets
-from .naming import resolve_safe_path, vault_root
+from .naming import resolve_safe_path, memorant_root
 
 AttentionLevel = str  # info | needs_attention | conflict
 

@@ -2,6 +2,27 @@
 
 本仓库（书童 · Memorant）的发布记录。版本号对齐 `.claude-plugin/plugin.json`。
 
+## [0.2.0] — 2026-08-20
+
+品牌统一、历史数据迁移与多宿主适配。
+
+### Breaking changes
+- **移除 `vault_*` MCP 工具**（`vault_search` / `vault_create_entry` / `vault_append_entry` / `vault_update_frontmatter` / `vault_delete_entry` / `vault_get_recent`）与 `/vault-*` 命令；只保留 `memorant_*` 入口。
+- **移除 `vault-mcp` entry point**，只保留 `memorant-mcp`。
+- **移除 `VAULT_ROOT` / `vault.local.md` 兼容层级**，root 解析优先级收敛为 `MEMORANT_ROOT > settings.json > memorant.local.md`。
+- 升级用户：历史 `bugs/`/`snippets/`/`daily/`/`arch/` 数据在首次 SessionStart 会提示迁移；运行 `/memorant-migrate`（或 `memorant_migrate(confirm=true)`）迁移为 Memory Envelope。
+
+### 数据迁移（P0）
+- 新增 `memorant_migrate` 工具与 `/memorant-migrate` 命令：历史四类 notes → Memory Envelope。
+- 迁移是「投影生成」：原始目录保留原位并先备份到 `.memorant/migration-backup/<timestamp>/`（永久保留，可回滚）。
+- 幂等、冲突不覆盖、单条失败隔离；迁移报告落盘 `.memorant/migration-report-<timestamp>.md`，全部 excerpt 脱敏。
+- `daily` 仅提取「## 踩坑/线索」下 `【待升bugs】/【待升snippets】/【待补ADR】` 前缀行（provisional），纯流水跳过。
+
+### 多宿主适配（P1）
+- 新增 `host_adapters/` 包：Claude Code（全能力）、Codex CLI（无自动事件采集/提炼）、Codex 云端/IDE（只读 + 手动写入）。
+- 新增 `memorant_host_info` 只读工具，上报当前宿主能力矩阵。
+- 通用核心 host-agnostic；CI 断言核心不 import `host_adapters`。
+
 ## [0.1.0] — 2026-07-28
 
 首个可用版本：本地长期记忆运行时（Hooks + MCP + Skill），A/B 信任场、主动 Distill、默认严谨书童。

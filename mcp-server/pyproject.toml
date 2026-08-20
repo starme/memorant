@@ -1,6 +1,6 @@
 [project]
 name = "memorant-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "MCP server for 书童 · Memorant: local long-term memory runtime with journal events, A/B Memory Envelopes, and trust-aware recall."
 requires-python = ">=3.10"
 dependencies = [
@@ -14,7 +14,6 @@ dependencies = [
 
 [project.scripts]
 memorant-mcp = "memorant_mcp.server:main"
-vault-mcp = "memorant_mcp.server:main"
 memorant-hook = "memorant_mcp.hook_cli:main"
 
 [dependency-groups]

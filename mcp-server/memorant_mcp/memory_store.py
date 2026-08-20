@@ -23,7 +23,7 @@ from .memory_schema import (
     TrustTier,
     envelope_to_frontmatter,
 )
-from .naming import PathForbiddenError, resolve_safe_path, vault_root
+from .naming import PathForbiddenError, resolve_safe_path, memorant_root
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -47,7 +47,7 @@ def _memory_rel(memory_id: str) -> str:
 
 
 def _find_by_fingerprint(fingerprint: str) -> dict[str, Any] | None:
-    root = Path(vault_root())
+    root = Path(memorant_root())
     memories = root / "memories"
     if not memories.is_dir():
         return None
@@ -66,7 +66,7 @@ def _inherit_scope_from_events(write: MemoryWriteInput) -> MemoryWriteInput:
     """Fill scope.project_key / project from source journal events when missing."""
     if write.scope.project_key and write.scope.project:
         return write
-    root = Path(vault_root())
+    root = Path(memorant_root())
     key = write.scope.project_key
     label = write.scope.project
     for event_id in write.source_event_ids:
@@ -135,7 +135,7 @@ def write_memory(write: MemoryWriteInput) -> dict[str, Any]:
 
 
 def read_memory(memory_id_or_path: str) -> dict[str, Any]:
-    root = Path(vault_root())
+    root = Path(memorant_root())
     candidate = memory_id_or_path
     if "/" not in memory_id_or_path and not memory_id_or_path.endswith(".md"):
         candidate = _memory_rel(memory_id_or_path)
@@ -180,7 +180,7 @@ def list_memories(
     limit: int = 50,
     include_legacy: bool = True,
 ) -> list[dict[str, Any]]:
-    root = Path(vault_root())
+    root = Path(memorant_root())
     results: list[dict[str, Any]] = []
     memories = root / "memories"
     if memories.is_dir():
@@ -219,14 +219,39 @@ def _legacy_kind(entry_type: str) -> MemoryKind:
     return MemoryKind.episodic
 
 
+def _migrated_legacy_paths(root: Path) -> set[str]:
+    """收集 memories/ 下已生成真实 Memory Envelope 的 legacy_path 集合。
+
+    迁移是「投影生成」（原 legacy 目录保留原位），迁移后在 memories/ 写入了
+    带 legacy_path 的 envelope。legacy 投影必须排除这些来源，否则同一来源
+    会以两条不同 memory_id 的记录重复召回。保持未迁移的旧数据仍可读。
+    """
+    migrated: set[str] = set()
+    memories = root / "memories"
+    if not memories.is_dir():
+        return migrated
+    for path in memories.glob("*.md"):
+        try:
+            post = frontmatter.load(path)
+        except (OSError, TypeError, UnicodeDecodeError, ValueError, yaml.YAMLError):
+            continue
+        legacy_path = post.get("legacy_path")
+        if isinstance(legacy_path, str) and legacy_path:
+            migrated.add(legacy_path)
+    return migrated
+
+
 def _legacy_memories(*, project: str | None, limit: int) -> list[dict[str, Any]]:
-    root = Path(vault_root())
+    root = Path(memorant_root())
+    migrated = _migrated_legacy_paths(root)
     out: list[dict[str, Any]] = []
     for folder, entry_type in (("bugs", "bug"), ("snippets", "snippet"), ("arch", "arch")):
         base = root / folder
         if not base.is_dir():
             continue
         for path in sorted(base.glob("**/*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
+            if path.relative_to(root).as_posix() in migrated:
+                continue
             try:
                 post = frontmatter.load(path)
             except (OSError, TypeError, UnicodeDecodeError, ValueError, yaml.YAMLError):

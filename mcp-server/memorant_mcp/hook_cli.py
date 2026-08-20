@@ -213,6 +213,47 @@ def _maybe_append(event: dict[str, Any]) -> bool:
         return False
 
 
+def _legacy_migration_hint() -> str:
+    """stdlib-only 首次启动迁移检测（P0-3）：有历史数据时返回提示，仅提示不迁移。
+
+    与 migration.first_start_legacy_hint 语义对齐：首次提示后落盘
+    `.memorant/migration-state.json`（reminded=True），避免每次 SessionStart
+    重复打扰。内联实现以在 `-S`（无 site-packages）下运行——hook_cli 依赖
+    pydantic/frontmatter 的 migration 模块在此环境不可导入，故用纯 stdlib
+    （json + pathlib）读写等价状态。
+    """
+    try:
+        root = Path(discover_root())
+    except Exception:
+        return ""
+    state_path = root / ".memorant" / "migration-state.json"
+    try:
+        reminded = json.loads(state_path.read_text(encoding="utf-8")).get("reminded", False)
+    except (OSError, ValueError):
+        reminded = False
+    if reminded:
+        return ""
+    total = 0
+    for directory in ("bugs", "snippets", "daily", "arch"):
+        base = root / directory
+        if base.is_dir():
+            total += sum(1 for p in base.rglob("*.md") if p.is_file())
+    if total == 0:
+        return ""
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps({"reminded": True}, ensure_ascii=False), encoding="utf-8"
+        )
+    except OSError:
+        pass
+    return (
+        f"检测到 {total} 条历史数据（bugs/snippets/daily/arch），是否迁移为 Memorant 记忆？"
+        "请运行 /memorant-migrate 或调用 memorant_migrate(confirm=true)。"
+    )
+
+
+
 def process(payload: dict[str, Any]) -> dict[str, Any]:
     hook_name = _text(payload.get("hook_event_name"), 64)
     project, project_key = _project_fields(payload)
@@ -239,8 +280,11 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
             }
         )
         context = _recall_context(project, project, "SessionStart")
-        if context:
-            return _context_output(hook_name, context)
+        # 迁移提示与召回解耦：无论召回是否命中，首次启动迁移提示都须出现，
+        # 避免「召回命中即跳过迁移提示」的语义漂移。
+        migration_hint = _legacy_migration_hint()
+        if context or migration_hint:
+            return _context_output(hook_name, _join_context(migration_hint, context))
         if wrote:
             return _context_output(hook_name, "Memorant journal event recorded.")
         return {}
