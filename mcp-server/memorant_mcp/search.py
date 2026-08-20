@@ -14,7 +14,7 @@ import shutil
 import subprocess
 from typing import Optional
 
-from .naming import vault_root
+from .naming import memorant_root
 
 
 def _rg_available() -> bool:
@@ -22,7 +22,7 @@ def _rg_available() -> bool:
 
 
 def _search_rg(query: str, dirs: list[str], limit: int) -> list[dict]:
-    root = vault_root()
+    root = memorant_root()
     paths = [os.path.join(root, d) for d in dirs] or [root]
     cmd = [
         "rg",
@@ -51,7 +51,7 @@ def _search_rg(query: str, dirs: list[str], limit: int) -> list[dict]:
         data = obj.get("data", {})
         # Use the full matched line as the snippet, not the concatenation of
         # all submatches (which would repeat the query word N times on a
-        # match-heavy line, e.g. "VAULT_ROOTVAULT_ROOT...").
+        # match-heavy line, e.g. "MEMORANT_ROOTMEMORANT_ROOT...").
         text = data.get("lines", {}).get("text", "")
         if not text:
             # Fallback to first submatch if line text is absent.
@@ -68,7 +68,7 @@ def _search_rg(query: str, dirs: list[str], limit: int) -> list[dict]:
 
 def _search_fallback(query: str, dirs: list[str], limit: int) -> list[dict]:
     """Pure-python fallback when rg is missing."""
-    root = vault_root()
+    root = memorant_root()
     needle = query.lower()
     results: list[dict] = []
     search_dirs = [os.path.join(root, d) for d in dirs] or [root]
@@ -97,7 +97,7 @@ def _matches_project(rel_path: str, project: str) -> bool:
 
     Daily stores project as a list; others as a string. Accept either form.
     """
-    root = vault_root()
+    root = memorant_root()
     abs_path = os.path.join(root, rel_path)
     try:
         with open(abs_path, encoding="utf-8") as f:

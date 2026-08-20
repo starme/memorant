@@ -1,32 +1,21 @@
 """FastMCP server for 书童 · Memorant.
 
-Six tools (all `vault_` prefixed):
-  - vault_search            read-only full-text search
-  - vault_create_entry      new file with schema validation + path whitelist
-  - vault_append_entry      append to an existing file (daily log growth)
-  - vault_update_frontmatter atomic frontmatter key change (pending_review, ADR status)
-  - vault_delete_entry      destructive: delete a file (promote migration)
-  - vault_get_recent        read-only: newest N entries in a dir
-
-The server validates frontmatter (Pydantic, extra=forbid) and refuses any path
-that resolves outside the configured Memorant root (resolve_safe_path). This is the security
-boundary since MCP file I/O bypasses Claude's Edit/Write tools (and thus the
-user's protect-files.sh hook).
+Exposes the `memorant_*` tools for journal events, A/B Memory Envelopes,
+trust-aware recall, promotion, feedback, activity audit, and legacy migration.
 """
 
 from __future__ import annotations
 
-import os
-from datetime import date
 from typing import Annotated, Any, Literal, Optional
 
-import frontmatter
 from fastmcp import FastMCP
 from pydantic import Field
 
 from .activity import append_activity, read_activity, session_end_summary
 from .event_schema import EventInput, EventType
+from .host_adapters import detect_host, get_adapter
 from .journal import append_event, list_pending_events
+from .migration import detect_legacy_data, migrate_legacy
 from .memory_schema import (
     EvidenceRef,
     MemoryKind,
@@ -35,19 +24,9 @@ from .memory_schema import (
     TrustTier,
 )
 from .memory_store import list_memories, read_memory, write_memory
-from .naming import (
-    ConflictError,
-    PathForbiddenError,
-    ensure_dir,
-    filename_for,
-    next_arch_sequence,
-    resolve_safe_path,
-    vault_root,
-)
+from .naming import memorant_root
 from .promotion import apply_feedback, promote_memory
 from .recall import format_recall_context, recall_memories
-from .schema import EntryType, SCHEMA_BY_TYPE
-from .search import search as do_search
 
 mcp = FastMCP(
     "memorant",
@@ -56,309 +35,9 @@ mcp = FastMCP(
         "deterministic journal events; the host Claude distills them into "
         "A/B Memory Envelopes (verified / provisional) with explicit trust "
         "fields; recall ranks memories by trust + tide. Markdown is the "
-        "only source of truth. Legacy vault_* tools (bugs/snippets/daily/"
-        "arch) remain as a compat layer for Obsidian-facing notes."
+        "only source of truth."
     ),
 )
-
-
-def _validate_and_serialize(entry_type: str, fm: dict, title: str) -> dict:
-    """Validate frontmatter dict against the type's schema; return cleaned dict."""
-    try:
-        et = EntryType(entry_type)
-    except ValueError:
-        raise ValueError(
-            f"unknown entry type {entry_type!r}; expected one of {[e.value for e in EntryType]}"
-        )
-    model_cls = SCHEMA_BY_TYPE[et]
-    # Ensure type/title present for the validator.
-    fm = {**fm, "type": et.value, "title": title}
-    try:
-        instance = model_cls(**fm)
-    except Exception as e:
-        # Pydantic ValidationError — surface a single actionable message.
-        errs = e.errors() if hasattr(e, "errors") else []
-        if errs:
-            e0 = errs[0]
-            loc = ".".join(str(x) for x in e0.get("loc", []))
-            raise ValueError(f"{entry_type} frontmatter invalid at '{loc}': {e0.get('msg')}")
-        raise ValueError(f"{entry_type} frontmatter invalid: {e}")
-    # Serialize back: dates -> ISO, enums -> values. Exclude None so optional
-    # fields that weren't set don't pollute the frontmatter with `null`.
-    data = instance.model_dump(mode="json", exclude_none=True)
-    return data
-
-
-def _write_entry(rel_path: str, fm: dict, body: str) -> str:
-    safe = resolve_safe_path(rel_path)
-    if os.path.exists(safe):
-        raise ConflictError(f"file already exists: {rel_path}")
-    ensure_dir(safe)
-    post = frontmatter.Post(body, **fm)
-    with open(safe, "w", encoding="utf-8") as f:
-        f.write(frontmatter.dumps(post))
-    return rel_path
-
-
-def _is_journal_path(path: str) -> bool:
-    journal = os.path.join(vault_root(), "journal")
-    return path == journal or path.startswith(journal + os.sep)
-
-
-_DEPRECATED_PREFIX = "[deprecated: prefer memorant_* tools] "
-
-
-def _deprecated(message: str) -> str:
-    if message.startswith(_DEPRECATED_PREFIX):
-        return message
-    return f"{_DEPRECATED_PREFIX}{message}"
-
-
-@mcp.tool(
-    name="vault_search",
-    annotations={
-        "title": "Search dev experience vault",
-        "readOnlyHint": True,
-        "openWorldHint": False,
-    },
-)
-async def vault_search(
-    query: str,
-    dirs: Optional[list[str]] = None,
-    project: Optional[str] = None,
-    limit: int = 20,
-) -> str:
-    """Search the vault for past dev experience — bugs, snippets, daily notes, ADRs.
-
-    Use this BEFORE debugging a bug, making a tech choice, or looking up an API,
-    to surface relevant past experience. `query` should be the error keyword /
-    concept / stack name. `dirs` filters to a subset of [bugs, snippets, daily, arch].
-    `project` filters by frontmatter project (cross-category). Returns matched
-    file + line + snippet.
-    """
-    try:
-        results = do_search(query, dirs, project, limit)
-    except RuntimeError as e:
-        return _deprecated(f"VAULT_ERROR: {e}")
-    if not results:
-        return _deprecated("no matches found")
-    lines = [f"{r['file']}:{r['line']} — {r['match']}" for r in results]
-    return _deprecated(f"{len(results)} match(es):\n" + "\n".join(lines))
-
-@mcp.tool(name="vault_create_entry")
-async def vault_create_entry(
-    type: str,
-    title: str,
-    body: str,
-    frontmatter: dict[str, Any],
-    date_str: Optional[str] = None,
-    stack: Optional[list[str]] = None,
-    project: Optional[Any] = None,
-) -> str:
-    """Create a new Memorant entry file with schema validation.
-
-    For arch: a global sequence number is auto-assigned (do not pass one).
-    For bug/snippet: pass `stack` — either as the top-level param, or in
-    `frontmatter`, or both (they must agree). For daily: `project` may be a list.
-    `project` follows the same dual-pass rule: pass it top-level, in frontmatter,
-    or both (must agree) — arch filenames use it.
-    Required frontmatter fields vary by type — the validator reports which are
-    missing. Writes are refused if the path escapes the configured root or the file
-    already exists.
-    """
-    try:
-        the_date = date_str or date.today().isoformat()
-        # Validate frontmatter FIRST (before allocating an arch sequence), so a
-        # validation failure doesn't burn a sequence number.
-        fm = dict(frontmatter)
-        fm["date"] = the_date
-        # `stack` is both a top-level param (used for the filename) and a
-        # required frontmatter field (used for validation). Accept either one
-        # so callers don't have to pass it twice — but reject a mismatch instead
-        # of silently picking one.
-        fm_stack = fm.get("stack")
-        if stack is not None and fm_stack is None:
-            fm["stack"] = stack
-        elif stack is None and fm_stack is not None:
-            stack = fm_stack  # back-fill the filename param
-        elif stack is not None and fm_stack is not None and list(stack) != list(fm_stack):
-            raise ValueError(
-                f"stack mismatch: top-level {stack!r} vs frontmatter {fm_stack!r}; pass one or make them equal"
-            )
-        # `project` has the same dual-pass problem: it's a top-level param (arch
-        # filename uses it) and may also live in frontmatter. Without sync, a
-        # caller passing project only in frontmatter gets filename fallback
-        # 'misc'. Same rule — accept either, reject a mismatch.
-        fm_project = fm.get("project")
-        if project is not None and fm_project is None:
-            fm["project"] = project
-        elif project is None and fm_project is not None:
-            project = fm_project  # back-fill the filename param
-        elif (
-            project is not None
-            and fm_project is not None
-            and project != fm_project
-        ):
-            raise ValueError(
-                f"project mismatch: top-level {project!r} vs frontmatter {fm_project!r}; pass one or make them equal"
-            )
-        cleaned = _validate_and_serialize(type, fm, title)
-
-        # Allocate the real sequence only after validation passes.
-        sequence = next_arch_sequence() if type == "arch" else None
-        rel = filename_for(
-            EntryType(type),
-            the_date,
-            title,
-            stack=stack,
-            project=project,
-            sequence=sequence,
-        )
-        if sequence is not None:
-            cleaned["sequence"] = sequence
-        _write_entry(rel, cleaned, body)
-        return _deprecated(f"created: {rel}")
-    except PathForbiddenError as e:
-        return _deprecated(f"PATH_FORBIDDEN: {e}")
-    except ConflictError as e:
-        return _deprecated(f"CONFLICT: {e}")
-    except ValueError as e:
-        return _deprecated(f"VALIDATION_ERROR: {e}")
-    except Exception as e:
-        return _deprecated(f"ERROR: {e}")
-
-
-@mcp.tool(name="vault_append_entry")
-async def vault_append_entry(
-    path: str,
-    content: str,
-    section: Optional[str] = None,
-) -> str:
-    """Append content to an existing Memorant file. If `section` is given, append
-    under that heading (creating it if missing). Used for daily log growth.
-    """
-    try:
-        safe = resolve_safe_path(path)
-        if _is_journal_path(safe):
-            return _deprecated(f"IMMUTABLE: journal event cannot be changed: {path}")
-        if not os.path.exists(safe):
-            return _deprecated(f"NOT_FOUND: {path}")
-        with open(safe, "r", encoding="utf-8") as f:
-            text = f.read()
-        if section:
-            marker = f"\n## {section}\n"
-            idx = text.find(f"\n## {section}")
-            if idx == -1:
-                if not text.endswith("\n"):
-                    text += "\n"
-                text += marker + content + "\n"
-            else:
-                insert_at = idx + len(f"\n## {section}\n")
-                text = text[:insert_at] + content + "\n" + text[insert_at:]
-        else:
-            if not text.endswith("\n"):
-                text += "\n"
-            text += content + "\n"
-        with open(safe, "w", encoding="utf-8") as f:
-            f.write(text)
-        return _deprecated(f"appended to: {path}")
-    except PathForbiddenError as e:
-        return _deprecated(f"PATH_FORBIDDEN: {e}")
-    except Exception as e:
-        return _deprecated(f"ERROR: {e}")
-
-
-@mcp.tool(name="vault_update_frontmatter")
-async def vault_update_frontmatter(
-    path: str,
-    key: str,
-    value: Any,
-) -> str:
-    """Atomically set one frontmatter key on a Memorant file.
-
-    Use for pending_review increment/decrement (pass an int) and ADR status
-    flip to 'superseded' when a newer ADR supersedes it.
-    """
-    try:
-        safe = resolve_safe_path(path)
-        if _is_journal_path(safe):
-            return _deprecated(f"IMMUTABLE: journal event cannot be changed: {path}")
-        if not os.path.exists(safe):
-            return _deprecated(f"NOT_FOUND: {path}")
-        with open(safe, "r", encoding="utf-8") as f:
-            post = frontmatter.load(f)
-        post[key] = value
-        with open(safe, "w", encoding="utf-8") as f:
-            f.write(frontmatter.dumps(post))
-        return _deprecated(f"updated {path}: {key}={value}")
-    except PathForbiddenError as e:
-        return _deprecated(f"PATH_FORBIDDEN: {e}")
-    except Exception as e:
-        return _deprecated(f"ERROR: {e}")
-
-
-@mcp.tool(
-    name="vault_delete_entry",
-    annotations={
-        "title": "Delete Memorant entry",
-        "destructiveHint": True,
-        "idempotentHint": True,
-    },
-)
-async def vault_delete_entry(path: str, confirm: bool = False) -> str:
-    """Delete a Memorant file. Used by the promote flow to remove a migrated
-    daily line's source (when the line is the whole file) — typically you
-    update the daily file instead. `confirm` must be true to proceed.
-    """
-    if not confirm:
-        return _deprecated("REFUSED: pass confirm=true to delete")
-    try:
-        safe = resolve_safe_path(path)
-        if _is_journal_path(safe):
-            return _deprecated(f"IMMUTABLE: journal event cannot be changed: {path}")
-        if not os.path.exists(safe):
-            return _deprecated(f"NOT_FOUND: {path}")
-        os.remove(safe)
-        return _deprecated(f"deleted: {path}")
-    except PathForbiddenError as e:
-        return _deprecated(f"PATH_FORBIDDEN: {e}")
-    except Exception as e:
-        return _deprecated(f"ERROR: {e}")
-
-
-@mcp.tool(
-    name="vault_get_recent",
-    annotations={
-        "title": "Get recent vault entries",
-        "readOnlyHint": True,
-        "openWorldHint": False,
-    },
-)
-async def vault_get_recent(dir: str, limit: int = 10) -> str:
-    """Return the newest N files in a Memorant dir (bugs/snippets/daily/arch),
-    by mtime. Use for daily review / pending_review triage.
-    """
-    try:
-        root = vault_root()
-        target = os.path.realpath(os.path.join(root, dir))
-        if target != root and not target.startswith(root + os.sep):
-            return _deprecated("PATH_FORBIDDEN: dir escapes MEMORANT_ROOT")
-        if not os.path.isdir(target):
-            return _deprecated(f"NOT_FOUND: {dir}")
-        files = [
-            os.path.join(dp, fn)
-            for dp, _ds, fns in os.walk(target)
-            for fn in fns
-            if fn.endswith(".md")
-        ]
-        files.sort(key=os.path.getmtime, reverse=True)
-        files = files[:limit]
-        if not files:
-            return _deprecated(f"no files in {dir}")
-        lines = [f"- {os.path.relpath(p, root)}" for p in files]
-        return _deprecated(f"{len(files)} recent in {dir}:\n" + "\n".join(lines))
-    except Exception as e:
-        return _deprecated(f"ERROR: {e}")
 
 
 @mcp.tool(name="memorant_append_event")
@@ -405,9 +84,24 @@ async def memorant_list_pending_events(
     """List journal events not referenced by any memory source_event_ids."""
     try:
         events = list_pending_events(session_id=session_id, project=project)
-        return {"events": events, "count": len(events)}
+        payload: dict[str, Any] = {"events": events, "count": len(events)}
+        _attach_degradation_note(payload)
+        return payload
     except Exception as e:
         return {"error": "ERROR", "message": str(e), "events": [], "count": 0}
+
+
+def _attach_degradation_note(payload: dict[str, Any]) -> None:
+    """当当前宿主不具备自动提炼时，附一致的降级说明（非破坏性，不覆盖既有字段）。"""
+    try:
+        adapter = get_adapter(detect_host())
+    except Exception:
+        return
+    if adapter.capabilities.auto_distill:
+        return
+    note = adapter.describe_degradation("auto_distill")
+    if note:
+        payload["degradation_note"] = note
 
 
 @mcp.tool(name="memorant_write_memory")
@@ -597,6 +291,77 @@ async def memorant_activity(
 
 # Keep list_memories import used for future tooling / tests.
 _ = (list_memories, read_memory)
+
+
+@mcp.tool(
+    name="memorant_host_info",
+    annotations={"readOnlyHint": True, "openWorldHint": False},
+)
+async def memorant_host_info() -> dict[str, Any]:
+    """Report the current host adapter and its capability matrix (read-only)."""
+    try:
+        name = detect_host()
+        adapter = get_adapter(name)
+        caps = adapter.capabilities
+        return {
+            "host": name,
+            "capabilities": {
+                "event_capture": caps.event_capture,
+                "recall": caps.recall,
+                "auto_distill": caps.auto_distill,
+                "promotion": caps.promotion,
+                "activity": caps.activity,
+            },
+        }
+    except Exception as e:
+        return {"error": "ERROR", "message": str(e)}
+
+
+@mcp.tool(name="memorant_migrate")
+async def memorant_migrate(
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Migrate legacy bugs/snippets/daily/arch notes into Memory Envelopes.
+
+    - dry_run=True: preview only (list what would migrate), write nothing.
+    - confirm must be True to actually migrate (red line: never auto-migrate).
+    """
+    try:
+        root = memorant_root()
+    except RuntimeError as e:
+        return {"error": "NOT_CONFIGURED", "message": str(e)}
+
+    if dry_run:
+        try:
+            return migrate_legacy(root, dry_run=True)
+        except Exception as e:
+            return {"error": "ERROR", "message": str(e)}
+
+    counts = detect_legacy_data(root)
+    total = sum(counts.values())
+    if not confirm:
+        if total == 0:
+            return {
+                "action_required": "none",
+                "legacy_counts": counts,
+                "total": 0,
+            }
+        return {
+            "action_required": "confirm",
+            "legacy_counts": counts,
+            "total": total,
+            "message": (
+                f"检测到 {total} 条历史数据，是否迁移为 Memorant 记忆？"
+                "请调用 memorant_migrate(confirm=true)。"
+            ),
+        }
+
+    try:
+        result = migrate_legacy(root)
+    except Exception as e:
+        return {"error": "ERROR", "message": str(e)}
+    return result
 
 
 def main() -> None:

@@ -10,7 +10,7 @@ import yaml
 
 from .event_schema import Event, EventInput
 from .hook_core import append_event_data, redact_secrets
-from .naming import vault_root
+from .naming import memorant_root
 
 
 def _event_dict(event: Event, path: str) -> dict[str, Any]:
@@ -23,11 +23,11 @@ def append_event(event_input: EventInput) -> dict[str, Any]:
     data = event.model_dump(mode="json")
     if not data.get("project_key"):
         data.pop("project_key", None)
-    return append_event_data(data, root=vault_root())
+    return append_event_data(data, root=memorant_root())
 
 
 def _referenced_event_ids() -> set[str]:
-    root = Path(vault_root())
+    root = Path(memorant_root())
     result: set[str] = set()
     for path in (root / "memories").glob("*.md"):
         try:
@@ -42,7 +42,7 @@ def _referenced_event_ids() -> set[str]:
 def list_pending_events(
     session_id: str | None = None, project: str | None = None
 ) -> list[dict[str, Any]]:
-    root = Path(vault_root())
+    root = Path(memorant_root())
     referenced = _referenced_event_ids()
     events: list[dict[str, Any]] = []
     for path in sorted((root / "journal").glob("**/*.md")):

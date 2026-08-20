@@ -7,9 +7,7 @@ description: Use when developing — search 书童 · Memorant for past bugs/sni
 
 Orchestrates Memorant MCP tools into seven flows: **Recall**, **Capture** (legacy notes — bugs/snippets/daily/arch), **Promote** (daily leads), **Commit**, **Distill**, **Trust Route**, and **Feedback**. Hooks capture deterministic journal events; you (host Claude) distill meaning into A/B Memory Envelopes; MCP validates, ranks, and promotes.
 
-**Two write tracks (do not conflate):**
-- **Memorant memories** (`memorant_write_memory`, Flows E/F): A/B **auto-write** — no per-item confirmation.
-- **Legacy notes** (`vault_*` tools / bugs/snippets/daily/arch, Flows B/C/D): still **preview + ask** before writing Obsidian-facing notes. `vault_*` responses are marked deprecated — these tools are a compat layer, not the primary memory surface.
+**Write track: Memorant memories** (`memorant_write_memory`, Flows E/F): A/B **auto-write** — no per-item confirmation. Legacy bugs/snippets/daily/arch notes are migrated into memories via `memorant_migrate` / `/memorant-migrate` (see below).
 
 ## Memorant layout (do not deviate)
 
@@ -31,7 +29,7 @@ Orchestrates Memorant MCP tools into seven flows: **Recall**, **Capture** (legac
 
 **Trigger**: user hits a bug / error, debugs, or makes a tech choice (cache / DB / framework / deployment).
 
-1. Before diving in, call `vault_search` with the error keyword + stack, or the concept word.
+1. Before diving in, call `memorant_recall` with the error keyword + stack, or the concept word.
    - For bugs: use the **exact error string** + stack name as `query`.
    - For tech choices: use the **concept** (`cache strategy`, `queue split`) + filter `dirs=["arch"]`.
    - Narrow with `dirs` (e.g. `["bugs"]`) and `project` when you know the context.
@@ -71,9 +69,9 @@ Orchestrates Memorant MCP tools into seven flows: **Recall**, **Capture** (legac
 **Don't record**: single-module implementation details (→ snippet/bug), temp workarounds (→ daily+bug unless long-lived), pure product logic (unless tech-bound).
 
 ### Recording procedure
-1. **Dedup first**: before writing a bug or ADR, `vault_search` for the topic. If a matching entry exists, **update it** (link the new context) instead of duplicating.
+1. **Dedup first**: before writing a bug or ADR, `memorant_recall` for the topic. If a matching entry exists, **update it** (link the new context) instead of duplicating.
 2. **Collect required fields** per the template (`templates/bug|snippet|daily|arch.md`). If any required field is missing, **ask the user** to fill it — don't write incomplete entries.
-3. Call `vault_create_entry` once with all fields:
+3. Call `memorant_write_memory` once with all fields:
    - bug: `type="bug"`, pass `stack`, frontmatter must include `version` + `status`.
    - snippet: `type="snippet"`, pass `stack` + `where` + `dont` + `version`.
    - arch: `type="arch"`, pass `project` (filename needs it). **Do not pass sequence** — server auto-assigns.
@@ -87,17 +85,14 @@ Orchestrates Memorant MCP tools into seven flows: **Recall**, **Capture** (legac
 
 **Trigger**: daily note has `【待升bugs】` / `【待升snippets】` / `【待补ADR】` lines, at session end or when user asks to tidy.
 
-Daily is the inbox; bugs/snippets/arch are the permanent home. Promote in three steps:
+Daily is the inbox; memories are the permanent home. Use `memorant_migrate` to promote:
 
-1. **Create** the new permanent entry (via Flow B procedure, from the daily line's content) — `vault_create_entry`.
-2. **Remove** the migrated line from the daily file:
-   - If the lead is one line among many → use `vault_append_entry` is wrong; instead rewrite the daily section (read it, drop the line, `vault_update_frontmatter` not applicable — ask user, then `Edit` the daily via the host). **Simplest**: tell the user which line to remove and let them confirm; use `vault_update_frontmatter` only for the counter.
-   - `vault_update_frontmatter(path="daily/YYYY-MM-DD.md", key="pending_review", value=<new>)` to decrement the counter.
-3. **Link**: add `related` from the new entry back to the daily source, and from relevant bugs/snippets to a new ADR if it supersedes.
+1. Run `/memorant-migrate` with `dry_run=true` to preview; daily `【待升bugs】`/`【待升snippets】`/`【待补ADR】` lines become `provisional` memories.
+2. On user confirmation, run `memorant_migrate(confirm=true)`. It is idempotent, never overwrites existing files, and backs up originals to `.memorant/migration-backup/<timestamp>/`.
+3. Verify the migration report (`migrated` / `skipped_no_form` / `skipped_conflict` / `failed` counts).
 
-**ADR supersede special case**: when a new ADR supersedes an old one, after creating the new ADR, `vault_update_frontmatter` the **old** ADR: `status` → `superseded`. The new ADR's frontmatter `supersedes` points to the old id.
+**Always ask the user to confirm** before migrating — migration is a judgment call, not a mechanical move (red line: never auto-migrate).
 
-**Always ask the user to confirm** before deleting/rewriting daily content — promote is a judgment call, not a mechanical move.
 
 ---
 
@@ -124,7 +119,7 @@ Daily is the inbox; bugs/snippets/arch are the permanent home. Promote in three 
 
 ### Four outcomes (the only valid branches)
 
-1. **Lean "worth-recording" + corroborated by quoted raw evidence** → judge **qualified**. Preview to the user — *"commit `<hash>`: initial verdict `<lean>`; corroboration: `<quoted raw line(s)>` satisfies Flow B clause `<clause>`."* — and only on user confirmation run Flow B's recording procedure (dedup → collect fields → `vault_create_entry`) in the current turn.
+1. **Lean "worth-recording" + corroborated by quoted raw evidence** → judge **qualified**. Preview to the user — *"commit `<hash>`: initial verdict `<lean>`; corroboration: `<quoted raw line(s)>` satisfies Flow B clause `<clause>`."* — and only on user confirmation run Flow B's recording procedure (dedup → collect fields → `memorant_write_memory`) in the current turn.
 2. **Lean "worth-recording" + `mechanical_evidence` is empty/0-hits/unavailable** → do **not** finalize on the lean alone. Tell the user plainly: *"initial verdict leans worth-recording, but the mechanical scan found no script evidence for this commit's debugging; my read of the context suggests `<X>` (UNVERIFIED-BY-SCRIPT) — supply the debugging process or confirm whether to record."* Do not silently record, do not silently drop.
 3. **Lean "not-worth-recording" + no overturning quoted evidence** → tell the user the skip reason (e.g. *"diff is a 1-line typo; `mechanical_evidence` shows no wrong-path hits"*) and do not write.
 4. **Lean "not-worth-recording" + quoted raw evidence overturns it** (e.g. a `docs:` commit whose `mechanical_evidence` shows a schema-pitfall traceback) → overturn the lean, judge **qualified**, preview + ask the user as in branch 1.
@@ -132,7 +127,7 @@ Daily is the inbox; bugs/snippets/arch are the permanent home. Promote in three 
 ### Rules
 - **Never silent.** Whether qualified or not, the verdict + its script-evidence basis (or the explicit `UNVERIFIED-BY-SCRIPT` tag) must be visible to the user.
 - **Never auto-write.** Writing to the legacy notes is writing to Obsidian — outward-facing, requires user confirmation (user red line). Always preview + ask first.
-- The **bug threshold** is Flow B's; the **recording procedure** is Flow B's (dedup → collect required fields → `vault_create_entry`); if a field is missing, ask the user rather than writing an incomplete entry.
+- The **bug threshold** is Flow B's; the **recording procedure** is Flow B's (dedup → collect required fields → `memorant_write_memory`); if a field is missing, ask the user rather than writing an incomplete entry.
 - The `mechanical_evidence` scan reads `transcript_path` from the hook's stdin (the official session-transcript JSONL path); if it is absent, the block reports `(transcript unavailable)` and you proceed on the lean + your own context read only — but with every claim tagged `UNVERIFIED-BY-SCRIPT` (no fabrication).
 - This flow does **not** replace the Stop hook — daily-log generation still goes through the Stop hook at session end. Flow D is specifically the bug-recording trigger anchored on `git commit`.
 
@@ -216,12 +211,8 @@ No fingerprint → gate fail (懂得不记).
 - `memorant_write_memory` / `memorant_recall`
 - `memorant_feedback` / `memorant_promote` / `memorant_activity`
 
-### Legacy notes — `vault_*` tools (compat)
-- Search: `vault_search(query, dirs?, project?, limit?)`
-- Create: `vault_create_entry(type, title, body, frontmatter, stack?, project?, date_str?)`
-- Append: `vault_append_entry(path, content, section?)`
-- Update frontmatter: `vault_update_frontmatter(path, key, value)`
-- Delete: `vault_delete_entry(path, confirm=true)`
-- Recent: `vault_get_recent(dir, limit)`
+### Migration
+- `memorant_migrate(dry_run?, confirm?)` — 迁移历史 bugs/snippets/daily/arch 为 Memory Envelope（confirm 必须为 true，绝不自动迁移）。
+- `memorant_host_info()` — 上报当前宿主能力矩阵。
 
-The compatible Stop hook (`hooks/vault-stop.sh`) still prompts for legacy daily review. Observer hooks (`hooks/memorant-hook.sh`) capture journal events and inject bounded recall — fail-open, never block the session.
+Observer hooks (`hooks/memorant-hook.sh`) capture journal events and inject bounded recall — fail-open, never block the session.

@@ -24,19 +24,17 @@ class ConflictError(Exception):
     """Raised when a target file already exists."""
 
 
-def vault_root() -> str:
-    """Resolve the Memorant root while preserving Vault compatibility.
+def memorant_root() -> str:
+    """Resolve the configured Memorant root.
 
-    Priority: MEMORANT_ROOT > memorant.settings.json root >
-    memorant.local.md > VAULT_ROOT > vault.local.md.
+    Priority: MEMORANT_ROOT > memorant.settings.json root > memorant.local.md.
     """
     try:
         return discover_root()
     except RuntimeError:
         raise RuntimeError(
             "MEMORANT_ROOT is not set. Configure MEMORANT_ROOT or "
-            ".claude/memorant.local.md; legacy VAULT_ROOT and "
-            ".claude/vault.local.md remain supported."
+            "create .claude/memorant.local.md with `root: /path/to/your/knowledge-base`."
         )
 
 
@@ -46,7 +44,7 @@ def resolve_safe_path(rel_path: str) -> str:
     Accepts forward slashes. After realpath, the result must start with
     the root plus a separator — anything else is path_forbidden.
     """
-    root = vault_root()
+    root = memorant_root()
     # Join then realpath; realpath collapses '..' and symlinks.
     candidate = os.path.realpath(os.path.join(root, rel_path))
     if candidate != root and not candidate.startswith(root + os.sep):
@@ -121,7 +119,7 @@ def next_arch_sequence() -> int:
     """Atomically read-increment-write arch/.sequence under flock."""
     import fcntl
 
-    seq_path = os.path.join(vault_root(), "arch", ".sequence")
+    seq_path = os.path.join(memorant_root(), "arch", ".sequence")
     os.makedirs(os.path.dirname(seq_path), exist_ok=True)
     # Touch if missing
     if not os.path.exists(seq_path):

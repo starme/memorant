@@ -133,7 +133,7 @@ def _walk_claude_files(filename: str) -> list[Path]:
 
 
 def _find_local_flag_config() -> dict[str, bool]:
-    for filename in ("memorant.local.md", "vault.local.md"):
+    for filename in ("memorant.local.md",):
         for path in _walk_claude_files(filename):
             values = _read_frontmatter_bools(path)
             if values:

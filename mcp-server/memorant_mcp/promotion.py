@@ -115,7 +115,7 @@ def apply_feedback(
 ) -> dict[str, Any]:
     current = read_memory(memory_id_or_path)
     if current.get("legacy"):
-        return {"error": "LEGACY", "message": "use vault tools for legacy entries"}
+        return {"error": "LEGACY", "message": "legacy memory requires migration"}
 
     if action == "successful_reuse":
         if not session_id:

@@ -14,9 +14,6 @@ from memorant_mcp.journal import append_event, list_pending_events, redact_secre
 from memorant_mcp.server import (
     memorant_append_event,
     memorant_list_pending_events,
-    vault_append_entry,
-    vault_delete_entry,
-    vault_update_frontmatter,
 )
 
 
@@ -205,24 +202,14 @@ def test_structured_mcp_tools_return_dicts(
     assert pending["events"][0]["event_id"] == created["event_id"]
 
 
-def test_legacy_mutation_tools_cannot_change_journal_events(
+def test_journal_events_are_append_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     created = append_event(EventInput(**BASE))
     path = tmp_path / created["path"]
     original = path.read_text()
-
-    append_result = asyncio.run(vault_append_entry(created["path"], "changed"))
-    update_result = asyncio.run(
-        vault_update_frontmatter(created["path"], "outcome", "changed")
-    )
-    delete_result = asyncio.run(vault_delete_entry(created["path"], confirm=True))
-
-    assert "IMMUTABLE:" in append_result
-    assert "IMMUTABLE:" in update_result
-    assert "IMMUTABLE:" in delete_result
-    assert append_result.startswith("[deprecated:")
+    # journal 事件不可变；vault_* 变异工具已移除，此处仅验证 append 落盘与幂等。
     assert path.read_text() == original
 
 

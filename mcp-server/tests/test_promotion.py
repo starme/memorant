@@ -82,3 +82,21 @@ def test_correct_without_replacement_marks_rejected(
     assert result["feedback"] == "corrected"
     assert result["updated"]["lifecycle"] == "rejected"
     assert result.get("replacement") is None
+
+
+def test_legacy_feedback_does_not_reference_deleted_vault_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """apply_feedback 对 legacy 记忆的死消息不得引用已删除的 vault 工具。
+
+    该分支（LEGACY）指向的 vault_* 工具已删除；错误文案须指向迁移路径，
+    而非悬空引用 vault。
+    """
+    import memorant_mcp.promotion as promotion_module
+
+    monkeypatch.setattr(promotion_module, "read_memory", lambda _: {"legacy": True})
+    result = apply_feedback("bugs/example.md", "adopted")
+
+    assert result["error"] == "LEGACY"
+    assert "vault" not in result["message"]
+    assert "migration" in result["message"]

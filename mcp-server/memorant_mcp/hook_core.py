@@ -102,7 +102,7 @@ def semantic_payload_hash(data: dict[str, Any]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def _read_local_root(path: Path, *, allow_vault_root: bool = False) -> str | None:
+def _read_local_root(path: Path) -> str | None:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -112,33 +112,25 @@ def _read_local_root(path: Path, *, allow_vault_root: bool = False) -> str | Non
     end = text.find("\n---", 3)
     if end == -1:
         return None
-    values: dict[str, str] = {}
     for line in text[3:end].splitlines():
         key, separator, value = line.partition(":")
         normalized = key.strip().lower()
-        if separator and (
-            normalized == "root"
-            or (allow_vault_root and normalized == "vault_root")
-        ):
+        if separator and normalized == "root":
             value = value.strip().strip("\"'")
             if value:
-                values[normalized] = value
-    return values.get("root") or values.get("vault_root")
+                return value
+    return None
 
 
 def _find_local(filename: str) -> str | None:
     home = Path.home()
     user_config = home / ".claude" / filename
-    allow_vault_root = filename == "vault.local.md"
-    root = _read_local_root(user_config, allow_vault_root=allow_vault_root)
+    root = _read_local_root(user_config)
     if root:
         return root
     current = Path.cwd()
     while True:
-        root = _read_local_root(
-            current / ".claude" / filename,
-            allow_vault_root=allow_vault_root,
-        )
+        root = _read_local_root(current / ".claude" / filename)
         if root:
             return root
         if current.resolve() == home.resolve():
@@ -151,7 +143,7 @@ def _find_local(filename: str) -> str | None:
 
 
 def discover_root() -> str:
-    """Priority: MEMORANT_ROOT > settings.json root > memorant.local.md > VAULT_*."""
+    """Priority: MEMORANT_ROOT > settings.json root > memorant.local.md."""
     root = os.environ.get("MEMORANT_ROOT", "").strip()
     if not root:
         try:
@@ -168,10 +160,6 @@ def discover_root() -> str:
                 root = ""
     if not root:
         root = (_find_local("memorant.local.md") or "").strip()
-    if not root:
-        root = os.environ.get("VAULT_ROOT", "").strip()
-    if not root:
-        root = (_find_local("vault.local.md") or "").strip()
     if root:
         return os.path.realpath(os.path.expanduser(root))
     raise RuntimeError("MEMORANT_ROOT is not configured")
