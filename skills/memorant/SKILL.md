@@ -1,15 +1,15 @@
 ---
 name: memorant
-description: Use when developing — search 书童 · Memorant for past bugs/snippets/ADRs before debugging or making tech choices, prompt to record non-trivial bugs/reusable snippets/architectural decisions after solving them, generate daily logs at session end, and promote daily "待升" leads into permanent bugs/snippets/ADR entries. Triggers on debugging, error messages, tech selection, "记到 memorant", "memorant", "vault", "经验库", daily summary, ADR, and non-dev milestones (PRD/spec/ADR 定稿、决策采纳).
+description: Use when developing — search 书童 · Memorant for past bugs/snippets/ADRs before debugging or making tech choices, prompt to record non-trivial bugs/reusable snippets/architectural decisions after solving them, generate daily logs at session end, and promote daily "待升" leads into permanent bugs/snippets/ADR entries. Triggers on debugging, error messages, tech selection, "记到 memorant", "memorant", "经验库", daily summary, ADR, and non-dev milestones (PRD/spec/ADR 定稿、决策采纳).
 ---
 
 # 书童 · Memorant Orchestrator
 
-Orchestrates Memorant MCP tools into seven flows: **Recall**, **Capture** (legacy vault), **Promote** (daily leads), **Commit**, **Distill**, **Trust Route**, and **Feedback**. Hooks capture deterministic journal events; you (host Claude) distill meaning into A/B Memory Envelopes; MCP validates, ranks, and promotes.
+Orchestrates Memorant MCP tools into seven flows: **Recall**, **Capture** (legacy notes — bugs/snippets/daily/arch), **Promote** (daily leads), **Commit**, **Distill**, **Trust Route**, and **Feedback**. Hooks capture deterministic journal events; you (host Claude) distill meaning into A/B Memory Envelopes; MCP validates, ranks, and promotes.
 
 **Two write tracks (do not conflate):**
 - **Memorant memories** (`memorant_write_memory`, Flows E/F): A/B **auto-write** — no per-item confirmation.
-- **Legacy vault** (`vault_*` / bugs/snippets/daily/arch, Flows B/C/D): still **preview + ask** before writing Obsidian-facing notes. `vault_*` responses are marked deprecated.
+- **Legacy notes** (`vault_*` tools / bugs/snippets/daily/arch, Flows B/C/D): still **preview + ask** before writing Obsidian-facing notes. `vault_*` responses are marked deprecated — these tools are a compat layer, not the primary memory surface.
 
 ## Memorant layout (do not deviate)
 
@@ -36,7 +36,7 @@ Orchestrates Memorant MCP tools into seven flows: **Recall**, **Capture** (legac
    - For tech choices: use the **concept** (`cache strategy`, `queue split`) + filter `dirs=["arch"]`.
    - Narrow with `dirs` (e.g. `["bugs"]`) and `project` when you know the context.
 2. Read matches. If a past bug/ADR applies, follow its 避坑 / Decision — don't repeat the wrong path.
-3. If nothing matches, proceed normally — but keep the vault in mind for Flow B.
+3. If nothing matches, proceed normally — but keep the legacy notes in mind for Flow B.
 
 **Don't** call search for trivial things (typo, port-in-use) — that's noise.
 
@@ -131,7 +131,7 @@ Daily is the inbox; bugs/snippets/arch are the permanent home. Promote in three 
 
 ### Rules
 - **Never silent.** Whether qualified or not, the verdict + its script-evidence basis (or the explicit `UNVERIFIED-BY-SCRIPT` tag) must be visible to the user.
-- **Never auto-write.** Writing to the vault is writing to Obsidian — outward-facing, requires user confirmation (user red line). Always preview + ask first.
+- **Never auto-write.** Writing to the legacy notes is writing to Obsidian — outward-facing, requires user confirmation (user red line). Always preview + ask first.
 - The **bug threshold** is Flow B's; the **recording procedure** is Flow B's (dedup → collect required fields → `vault_create_entry`); if a field is missing, ask the user rather than writing an incomplete entry.
 - The `mechanical_evidence` scan reads `transcript_path` from the hook's stdin (the official session-transcript JSONL path); if it is absent, the block reports `(transcript unavailable)` and you proceed on the lean + your own context read only — but with every claim tagged `UNVERIFIED-BY-SCRIPT` (no fabrication).
 - This flow does **not** replace the Stop hook — daily-log generation still goes through the Stop hook at session end. Flow D is specifically the bug-recording trigger anchored on `git commit`.
@@ -216,7 +216,7 @@ No fingerprint → gate fail (懂得不记).
 - `memorant_write_memory` / `memorant_recall`
 - `memorant_feedback` / `memorant_promote` / `memorant_activity`
 
-### Legacy vault_* (compat)
+### Legacy notes — `vault_*` tools (compat)
 - Search: `vault_search(query, dirs?, project?, limit?)`
 - Create: `vault_create_entry(type, title, body, frontmatter, stack?, project?, date_str?)`
 - Append: `vault_append_entry(path, content, section?)`

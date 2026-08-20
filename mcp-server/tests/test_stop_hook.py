@@ -42,15 +42,17 @@ def test_stop_hook_uses_project_memorant_config_before_legacy_environment(
     _daily(memorant_root, 7)
     _daily(legacy_root, 2)
 
+    env = {
+        **os.environ,
+        "HOME": str(home),
+        "VAULT_ROOT": str(legacy_root),
+        "CLAUDE_PLUGIN_ROOT": str(REPO_ROOT),
+    }
+    env.pop("MEMORANT_ROOT", None)
     result = subprocess.run(
         ["bash", str(HOOK)],
         cwd=worktree,
-        env={
-            **os.environ,
-            "HOME": str(home),
-            "VAULT_ROOT": str(legacy_root),
-            "CLAUDE_PLUGIN_ROOT": str(REPO_ROOT),
-        },
+        env=env,
         capture_output=True,
         text=True,
         check=True,

@@ -46,17 +46,14 @@ except (OSError, subprocess.TimeoutExpired, ValueError):
     raise SystemExit(1)
 PY
 
-SIZE="$(wc -c < "$OUTPUT" 2>/dev/null | tr -d ' ')"
-[[ "$SIZE" =~ ^[0-9]+$ && "$SIZE" -le 10000 && "$SIZE" -gt 0 ]] || emit_empty
-
-# Dispatch by hook type. PreCompact's context reaches the model as stdout plain
-# text (it does not accept hookSpecificOutput.additionalContext); passing that
-# through JSON validation would discard it. Other hooks emit JSON, validated.
+# PreCompact uses stdout plain text; route it before the JSON-only size gate.
 HOOK_EVENT="$(python3 -B -S -c '
 import json, sys
 try:
-    print(json.load(open(sys.argv[1])).get("hook_event_name") or "")
-except Exception:
+    with open(sys.argv[1]) as stream:
+        payload = json.load(stream)
+    print(payload.get("hook_event_name") or "")
+except (OSError, TypeError, ValueError):
     print("")
 ' "$INPUT" 2>/dev/null)"
 
@@ -65,6 +62,10 @@ if [[ "$HOOK_EVENT" == "PreCompact" ]]; then
   exit 0
 fi
 
+SIZE="$(wc -c < "$OUTPUT" 2>/dev/null | tr -d ' ')"
+[[ "$SIZE" =~ ^[0-9]+$ && "$SIZE" -le 10000 && "$SIZE" -gt 0 ]] || emit_empty
+
+# All non-PreCompact hooks emit JSON, so reject malformed or oversized output.
 python3 -c 'import json,sys; json.load(sys.stdin)' < "$OUTPUT" >/dev/null 2>&1 \
   || emit_empty
 cat "$OUTPUT" 2>/dev/null || emit_empty
