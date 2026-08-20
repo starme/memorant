@@ -59,4 +59,3 @@ def detect_host() -> str:
             return name
     # codex_cloud.detect() 恒为 False（不主动判定），故探测链兜底到只读降级。
     return "codex_cloud"
-
