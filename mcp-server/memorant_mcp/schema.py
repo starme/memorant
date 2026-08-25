@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from datetime import date
 from enum import Enum
-from typing import List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -47,9 +46,9 @@ class _Common(BaseModel):
     type: EntryType
     date: date
     title: str = Field(..., min_length=1, max_length=200)
-    tags: List[str] = Field(default_factory=list)
-    related: List[str] = Field(default_factory=list)
-    project: Optional[str] = Field(
+    tags: list[str] = Field(default_factory=list)
+    related: list[str] = Field(default_factory=list)
+    project: str | None = Field(
         default=None,
         description="project this entry belongs to (optional for bug/snippet)",
     )
@@ -57,7 +56,7 @@ class _Common(BaseModel):
 
 class BugFrontmatter(_Common):
     type: EntryType = Field(default=EntryType.bug, frozen=True)
-    stack: List[str] = Field(..., min_length=1, description="技术栈，如 [Node, Express]")
+    stack: list[str] = Field(..., min_length=1, description="技术栈，如 [Node, Express]")
     version: dict = Field(
         ...,
         description="关键依赖版本，如 {node: 20, express: '4.18.2'}",
@@ -65,7 +64,7 @@ class BugFrontmatter(_Common):
     status: BugStatus = Field(default=BugStatus.resolved)
 
     @model_validator(mode="after")
-    def _type_is_bug(self) -> "BugFrontmatter":
+    def _type_is_bug(self) -> BugFrontmatter:
         if self.type != EntryType.bug:
             raise ValueError(f"bug entry type must be 'bug', got '{self.type}'")
         return self
@@ -73,9 +72,9 @@ class BugFrontmatter(_Common):
 
 class SnippetFrontmatter(_Common):
     type: EntryType = Field(default=EntryType.snippet, frozen=True)
-    stack: List[str] = Field(..., min_length=1)
+    stack: list[str] = Field(..., min_length=1)
     where: str = Field(..., min_length=1, description="使用场景")
-    dont: List[str] = Field(
+    dont: list[str] = Field(
         ...,
         min_length=1,
         description="禁忌/禁止场景，至少一条",
@@ -83,7 +82,7 @@ class SnippetFrontmatter(_Common):
     version: dict = Field(..., description="依赖版本约束")
 
     @model_validator(mode="after")
-    def _type_is_snippet(self) -> "SnippetFrontmatter":
+    def _type_is_snippet(self) -> SnippetFrontmatter:
         if self.type != EntryType.snippet:
             raise ValueError(f"snippet entry type must be 'snippet', got '{self.type}'")
         return self
@@ -97,12 +96,12 @@ class DailyFrontmatter(_Common):
 
     type: EntryType = Field(default=EntryType.daily, frozen=True)
     date: date
-    tags: List[str] = Field(default_factory=lambda: ["daily", "dev"])
-    project: List[str] = Field(
+    tags: list[str] = Field(default_factory=lambda: ["daily", "dev"])
+    project: list[str] = Field(
         default_factory=list,
         description="当天涉及的项目（数组，跨项目那天多值）",
     )
-    related: List[str] = Field(default_factory=list)
+    related: list[str] = Field(default_factory=list)
     pending_review: int = Field(
         default=0,
         ge=0,
@@ -110,7 +109,7 @@ class DailyFrontmatter(_Common):
     )
 
     @model_validator(mode="after")
-    def _type_is_daily(self) -> "DailyFrontmatter":
+    def _type_is_daily(self) -> DailyFrontmatter:
         if self.type != EntryType.daily:
             raise ValueError(f"daily entry type must be 'daily', got '{self.type}'")
         return self
@@ -119,14 +118,14 @@ class DailyFrontmatter(_Common):
 class ArchFrontmatter(_Common):
     type: EntryType = Field(default=EntryType.arch, frozen=True)
     status: ArchStatus = Field(default=ArchStatus.active)
-    decision_by: List[str] = Field(..., min_length=1, description="决策人")
-    supersedes: Optional[str] = Field(
+    decision_by: list[str] = Field(..., min_length=1, description="决策人")
+    supersedes: str | None = Field(
         default=None,
         description="被替代的旧 ADR id，如 adr-002",
     )
 
     @model_validator(mode="after")
-    def _supersedes_requires_status(self) -> "ArchFrontmatter":
+    def _supersedes_requires_status(self) -> ArchFrontmatter:
         # If this ADR supersedes an old one, the old one's status should flip to
         # 'superseded'. Enforced by the Skill's promote flow, not here — but if
         # supersedes is set we expect status active (the new one takes over).

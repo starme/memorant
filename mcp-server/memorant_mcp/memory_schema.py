@@ -98,7 +98,7 @@ class MemoryEnvelope(BaseModel):
         return round(float(value), 4)
 
     @model_validator(mode="after")
-    def _trust_rules(self) -> "MemoryEnvelope":
+    def _trust_rules(self) -> MemoryEnvelope:
         if self.trust_tier == TrustTier.verified:
             if self.lifecycle not in {
                 LifecycleState.active,
@@ -142,7 +142,7 @@ class MemoryWriteInput(BaseModel):
     recurrence_cadence: Literal["ad-hoc", "quarterly", "annual"] = "ad-hoc"
 
     @model_validator(mode="after")
-    def _require_evidence_hooks(self) -> "MemoryWriteInput":
+    def _require_evidence_hooks(self) -> MemoryWriteInput:
         if not self.evidence:
             raise ValueError("memory write requires at least one evidence hook")
         return self

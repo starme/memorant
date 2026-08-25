@@ -12,7 +12,6 @@ import json
 import os
 import shutil
 import subprocess
-from typing import Optional
 
 from .naming import vault_root
 
@@ -122,8 +121,8 @@ def _matches_project(rel_path: str, project: str) -> bool:
 
 def search(
     query: str,
-    dirs: Optional[list[str]] = None,
-    project: Optional[str] = None,
+    dirs: list[str] | None = None,
+    project: str | None = None,
     limit: int = 20,
 ) -> list[dict]:
     """Search Memorant Markdown for `query`, optionally filtering by directory/project."""

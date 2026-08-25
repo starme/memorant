@@ -19,7 +19,6 @@ from memorant_mcp.server import (
     vault_update_frontmatter,
 )
 
-
 BASE = {
     "event_type": "tool.failure",
     "session_id": "session-1",

@@ -4,14 +4,18 @@ from pathlib import Path
 
 import pytest
 
+from memorant_mcp.activity import append_activity, read_activity
 from memorant_mcp.event_schema import EventInput
 from memorant_mcp.journal import append_event, list_pending_events
-from memorant_mcp.memory_schema import EvidenceRef, MemoryKind, MemoryWriteInput, TrustTier
+from memorant_mcp.memory_schema import (
+    EvidenceRef,
+    MemoryKind,
+    MemoryWriteInput,
+    TrustTier,
+)
 from memorant_mcp.memory_store import write_memory
-from memorant_mcp.promotion import promote_memory
+from memorant_mcp.promotion import apply_feedback, promote_memory
 from memorant_mcp.recall import recall_memories
-from memorant_mcp.activity import append_activity, read_activity
-from memorant_mcp.promotion import apply_feedback
 
 
 def test_failure_to_promotion_to_correction_pipeline(
