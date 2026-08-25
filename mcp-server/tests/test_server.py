@@ -167,6 +167,16 @@ def test_server_keeps_legacy_tool_names() -> None:
         "memorant_activity",
     ]:
         assert modern in names
+    for ingest in [
+        "memorant_ingest_source",
+        "memorant_distill_source",
+        "memorant_list_sources",
+        "memorant_external_policy",
+        "memorant_confirm_external",
+        "memorant_govern_source",
+        "memorant_confirm_promote",
+    ]:
+        assert ingest in names
 
 
 def test_append_event_tool_schema_exposes_enum_and_limits() -> None:
@@ -197,7 +207,7 @@ def test_append_event_tool_schema_exposes_enum_and_limits() -> None:
     assert properties["tags"]["anyOf"][0]["items"]["maxLength"] == 64
 
 
-@pytest.mark.parametrize("command", ["memorant-mcp", "vault-mcp"])
+@pytest.mark.parametrize("command", ["memorant-mcp", "memorant-hook"])
 def test_installed_cli_entrypoints_smoke(
     command: str, tmp_path: Path
 ) -> None:

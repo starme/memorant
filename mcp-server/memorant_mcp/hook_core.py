@@ -46,6 +46,20 @@ _CREDENTIAL = re.compile(
     r"(\s*[:=]\s*)([^\s,;\"']+|\"[^\"]*\"|'[^']*')"
 )
 _URL_CREDENTIAL = re.compile(r"(?i)(https?://[^:/\s]+:)[^@\s/]+(@)")
+# 自由文本密码形态：`my password is hunter2` / `Password: hunter2` /
+# 中文「密码是 hunter2」等。连接词后跟的 token 作为凭证值脱敏。
+# 保守：英文 `password is <value>` 有歧义，值排除一组常见非凭证描述词
+# （protected/required/reset/manager 等），避免把普通句子误报为凭证。
+# 中文「密码是」几乎必然后接凭证值，不设描述词黑名单。
+_PASSWORD_FREE_TEXT = re.compile(
+    r"(?i)\b(password|passwd|pwd)\b\s*(?:is|are|was|=|:)\s*"
+    r"(?!protected|required|reset|forgotten|manager|field|link|change|hint|"
+    r"hashing|hash|policy|rules|requirements|guidelines|stored|not|never)\b"
+    r"([^\s,;\"']+)"
+)
+_PASSWORD_FREE_TEXT_ZH = re.compile(
+    r"(密码|口令)\s*(?:是|为|：|=|:)\s*([^\s,;\"'，。；]+)"
+)
 _UNSAFE_STRUCTURED = re.compile(
     r'(?is)[{"\']\s*(env|environment|tool_params|tool_input|params)\s*["\']?\s*:'
 )
@@ -68,7 +82,11 @@ def redact_secrets(text: str | None) -> str:
     text = _AUTHORIZATION.sub("Authorization: [REDACTED]", text)
     text = _BEARER.sub("Bearer [REDACTED]", text)
     text = _URL_CREDENTIAL.sub(r"\1[REDACTED]\2", text)
-    return _CREDENTIAL.sub(r"\1\2[REDACTED]", text)
+    text = _CREDENTIAL.sub(r"\1\2[REDACTED]", text)
+    # 自由文本密码形态兜底（结构化 _CREDENTIAL 未覆盖的 `password is X` 等）。
+    text = _PASSWORD_FREE_TEXT.sub(r"\1 [REDACTED]", text)
+    text = _PASSWORD_FREE_TEXT_ZH.sub(r"\1 [REDACTED]", text)
+    return text
 
 
 def bounded_evidence(text: str | None) -> str:

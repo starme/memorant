@@ -9,7 +9,10 @@ import frontmatter
 import yaml
 
 from .event_schema import Event, EventInput
-from .hook_core import append_event_data, redact_secrets
+from .hook_core import (  # noqa: F401 - re-export for tests
+    append_event_data,
+    redact_secrets,
+)
 from .naming import vault_root
 
 

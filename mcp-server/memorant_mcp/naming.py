@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import date
 
 from .hook_core import discover_root
 from .schema import EntryType

@@ -14,7 +14,6 @@ dependencies = [
 
 [project.scripts]
 memorant-mcp = "memorant_mcp.server:main"
-vault-mcp = "memorant_mcp.server:main"
 memorant-hook = "memorant_mcp.hook_cli:main"
 
 [dependency-groups]
@@ -22,9 +21,30 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.8",
 ]
+# 可选依赖组：PDF 解析需要 pypdf，默认 `uv sync` 不安装（优雅降级）。
+# 启用：`uv sync --group pdf`
+pdf = [
+    "pypdf>=4.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff.lint]
+# 对齐项目既有风格（ruff 0.16 将下列 preview 规则转正后暴露，非本次引入）：
+# - BLE001：MCP 工具统一 `except Exception` 做结构化防御返回（改具体类型会漏捕获致 server 崩溃）
+# - ASYNC230：vault/MCP 工具 async 但同步读本地 markdown（既有设计，非网络阻塞）
+# - DTZ011：`date.today()` 用于 daily 文件名（naive date 是刻意语义）
+# - S110：幂等去重 / 防御路径的 try/except/pass
+# - TRY004：`_validate_*` 校验抛 ValueError（语义上是值校验，非类型错误）
+# - SIM102：既有嵌套 if 早返回，合并不增可读性
+# - PLW1510：subprocess.run 无 check（既有测试/hook 刻意容忍非零返回）
+# - B017：既有测试用 `pytest.raises(Exception)` 断言任意异常（已在新测试改用 ValidationError）
+# - ISC004：既有测试字符串隐式拼接
+ignore = [
+    "BLE001", "ASYNC230", "DTZ011", "S110",
+    "TRY004", "SIM102", "PLW1510", "B017", "ISC004",
+]
 
 [build-system]
 requires = ["hatchling"]
