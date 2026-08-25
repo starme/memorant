@@ -84,6 +84,23 @@ def _resolve_local_file(path: str) -> str:
     raise PermissionError(f"path outside allowed source dirs: {path}")
 
 
+def _resolve_local_dir(path: str) -> str:
+    """校验本地目录 realpath 后处于允许目录内，否则 READ_FORBIDDEN。
+
+    与 _resolve_local_file 对称：realpath + startswith 白名单判定，仅把
+    isfile 换成 isdir。越界抛 PermissionError（上层映射 READ_FORBIDDEN），
+    不存在抛 FileNotFoundError（上层映射 NOT_FOUND）。
+    """
+    real = os.path.realpath(os.path.expanduser(path))
+    if not os.path.isdir(real):
+        raise FileNotFoundError(path)
+    allowed = _allowed_source_roots()
+    for root in allowed:
+        if real == root or real.startswith(root + os.sep):
+            return real
+    raise PermissionError(f"path outside allowed source dirs: {path}")
+
+
 def _read_raw_source(kind: str, *, path: str | None, url: str | None, content: str | None) -> tuple[bytes, str]:
     """读取原始字节与规范化来源；URL 拒绝 file://。"""
     if kind in {"markdown", "text", "word", "pdf"}:

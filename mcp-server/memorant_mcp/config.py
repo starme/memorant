@@ -307,6 +307,9 @@ _INGEST_DEFAULTS: dict[str, Any] = {
     "extract_max_bytes": 100 * 1024,          # 提取纯文本缓存上限
     "url_timeout_seconds": 10.0,
     "source_allow_dirs": [],                  # 本地文件额外白名单（默认仅 MEMORANT_ROOT）
+    "batch_max_files": 1000,                  # 批量目录导入数量上限（扫描阶段截断）
+    "batch_max_bytes": 524288000,             # 批量总字节上限 500MB（仅统计成功落盘项）
+    "batch_max_seconds": 300,                 # 批量处理时间上限（秒）
 }
 
 

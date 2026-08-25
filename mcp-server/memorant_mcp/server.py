@@ -29,6 +29,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from .activity import append_activity, read_activity, session_end_summary
+from .batch_ingest import batch_ingest_dir, scan_dir
 from .event_schema import EventInput, EventType
 from .external_policy import detect_directives, external_allowed, load_policy
 from .governance import govern_source
@@ -844,6 +845,65 @@ async def memorant_confirm_promote(
         "trust_tier": updated.get("trust_tier"),
         "lifecycle": updated.get("lifecycle"),
     }
+
+
+@mcp.tool(name="memorant_batch_ingest_dir")
+async def memorant_batch_ingest_dir(
+    directory: str,
+    dry_run: bool = False,
+    types: list[str] | None = None,
+    max_files: int | None = None,
+    max_bytes: int | None = None,
+    max_seconds: float | None = None,
+    distill: bool = False,
+) -> dict[str, Any]:
+    """批量投喂一个目录下的 md/txt/docx/pdf 文件，复用单文件 ingest 的留存/幂等/hash 语义。
+
+    dry_run=true 只读预览（不落盘、不写 journal/activity/memories）。
+    逐项复用 ingest_source；单文件失败不阻断；目录级错误（越界/不存在）整体终止。
+    数量/字节/时间三类上限超限置 stopped_reason 并停止后续；重跑幂等只补齐失败项。
+    distill=true 仅对成功项做蒸馏准备阶段（外发判定+注入防护+合成 doc.commit 事件），
+    不自动推理/promotion/governance；产物 trust_tier=provisional。
+    """
+    try:
+        return batch_ingest_dir(
+            directory=directory,
+            dry_run=dry_run,
+            types=types,
+            max_files=max_files,
+            max_bytes=max_bytes,
+            max_seconds=max_seconds,
+            distill=distill,
+        )
+    except ValueError as e:
+        return {"error": "VALIDATION_ERROR", "message": str(e)}
+    except PermissionError as e:
+        return {"error": "READ_FORBIDDEN", "message": str(e)}
+    except FileNotFoundError as e:
+        return {"error": "NOT_FOUND", "message": str(e)}
+    except Exception as e:
+        return {"error": "ERROR", "message": str(e)}
+
+
+@mcp.tool(
+    name="memorant_batch_scan_dir",
+    annotations={"readOnlyHint": True, "openWorldHint": False},
+)
+async def memorant_batch_scan_dir(
+    directory: str,
+    types: list[str] | None = None,
+) -> dict[str, Any]:
+    """只读扫描目录，返回匹配文件清单（不落盘、不判定重复）。用于 dry-run 前预览。"""
+    try:
+        return scan_dir(directory, types=types)
+    except ValueError as e:
+        return {"error": "VALIDATION_ERROR", "message": str(e)}
+    except PermissionError as e:
+        return {"error": "READ_FORBIDDEN", "message": str(e)}
+    except FileNotFoundError as e:
+        return {"error": "NOT_FOUND", "message": str(e)}
+    except Exception as e:
+        return {"error": "ERROR", "message": str(e)}
 
 
 # Keep list_memories import used for future tooling / tests.
