@@ -82,7 +82,10 @@ _DIRECTIVE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"忽略(上述|之前|以上)?指令"),
     re.compile(r"你现在的任务是"),
     re.compile(r"不要(遵循|遵守).*(指令|规则)"),
-    re.compile(r"ignore\s+(the\s+|all\s+)?(previous|prior|above|earlier)\s+instructions?", re.IGNORECASE),
+    re.compile(
+        r"ignore\s+(the\s+|all\s+)?(previous|prior|above|earlier)\s+instructions?",
+        re.IGNORECASE,
+    ),
     re.compile(r"you\s+are\s+now\s+.*(task|instructed)", re.IGNORECASE),
     re.compile(r"disregard\s+.*(instruction|rule)", re.IGNORECASE),
 ]

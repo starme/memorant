@@ -37,7 +37,7 @@ def _docx(tmp_path: Path, paragraphs: list[str]) -> Path:
     document_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        '<w:body>'
+        "<w:body>"
         + "".join(
             f'<w:p><w:r><w:t xml:space="preserve">{p}</w:t></w:r></w:p>'
             for p in paragraphs
@@ -67,13 +67,13 @@ def test_word_doc_returns_unsupported(tmp_path: Path) -> None:
     assert "不支持" in text or "docx" in text
 
 
-def test_pdf_without_pypdf_returns_unparseable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pdf_without_pypdf_returns_unparseable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # 确保 pypdf 不可用（运行时探测为 None）。
     import importlib.util
 
-    monkeypatch.setattr(
-        importlib.util, "find_spec", lambda name, package=None: None
-    )
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, package=None: None)
     p = tmp_path / "a.pdf"
     p.write_bytes(b"%PDF-1.4 fake")
     text, ok = extract_text("pdf", path=str(p))
@@ -81,7 +81,9 @@ def test_pdf_without_pypdf_returns_unparseable(tmp_path: Path, monkeypatch: pyte
     assert "pypdf" in text
 
 
-def test_pdf_with_pypdf_extracts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pdf_with_pypdf_extracts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import importlib.util
 
     monkeypatch.setattr(
@@ -133,9 +135,7 @@ def test_url_404_returns_fetch_failed(monkeypatch: pytest.MonkeyPatch) -> None:
     from memorant_mcp import parsers
 
     def fake_fetch_404(url: str, timeout: float, max_bytes: int) -> bytes:
-        raise urllib.error.HTTPError(
-            url, 404, "Not Found", hdrs=None, fp=None
-        )
+        raise urllib.error.HTTPError(url, 404, "Not Found", hdrs=None, fp=None)
 
     monkeypatch.setattr(parsers, "_fetch_url_bytes", fake_fetch_404)
     text, ok = extract_text("url", url="https://example.com/missing")

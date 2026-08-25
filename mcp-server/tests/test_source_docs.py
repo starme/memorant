@@ -39,9 +39,7 @@ def test_ingest_markdown_file_stores_and_returns_doc_id(
     assert (tmp_path / "source_docs" / f"{result['doc_id']}.txt").is_file()
 
 
-def test_ingest_paste_content(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_ingest_paste_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     result = ingest_source(kind="paste", content="pasted experience text")
     assert result["status"] == "stored"
@@ -96,9 +94,7 @@ def test_local_file_outside_root_is_forbidden(
     assert result.get("error") == "READ_FORBIDDEN"
 
 
-def test_read_and_list_sources(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_read_and_list_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     result = ingest_source(kind="paste", content="列表测试")
     doc = read_source_doc(result["doc_id"])

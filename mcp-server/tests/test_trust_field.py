@@ -39,9 +39,7 @@ def test_corrected_memory_serves_as_negative_trust(
             source_event_ids=["a" * 32],
         )
     )
-    update_memory_fields(
-        written["path"], {"lifecycle": LifecycleState.corrected.value}
-    )
+    update_memory_fields(written["path"], {"lifecycle": LifecycleState.corrected.value})
     payload = recall_memories("pool exhausted", project="demo", mark=False)
     hit = [r for r in payload["results"] if r.get("path") == written["path"]]
     assert hit, "negative-trust near-pit should appear on high similarity"

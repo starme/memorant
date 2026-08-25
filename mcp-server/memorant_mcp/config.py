@@ -132,7 +132,7 @@ def _walk_claude_files(filename: str) -> list[Path]:
 
 
 def _find_local_flag_config() -> dict[str, bool]:
-    for filename in ("memorant.local.md", "vault.local.md"):
+    for filename in ("memorant.local.md",):
         for path in _walk_claude_files(filename):
             values = _read_frontmatter_bools(path)
             if values:
@@ -203,7 +203,9 @@ def _behavior_from_dict(raw: dict[str, Any] | None) -> PersonaBehavior:
     preset = data.get("preset", "rigorous")
     if not isinstance(preset, str) or preset not in {*_PRESETS, "custom"}:
         preset = "rigorous"
-    base = dict(_PRESETS.get(preset if preset != "custom" else "rigorous", _PRESETS["rigorous"]))
+    base = dict(
+        _PRESETS.get(preset if preset != "custom" else "rigorous", _PRESETS["rigorous"])
+    )
     selectivity = _coerce_level(data.get("selectivity"), base["selectivity"])
     voice = _coerce_level(data.get("voice"), base["voice"])
     guardrail = _coerce_level(data.get("guardrail"), base["guardrail"])
@@ -278,7 +280,9 @@ def load_settings() -> MemorantSettings:
     if gate_skip not in _GATE_SKIP:
         gate_skip = "session_aggregate"
 
-    behavior_raw = persona.get("behavior") if isinstance(persona.get("behavior"), dict) else {}
+    behavior_raw = (
+        persona.get("behavior") if isinstance(persona.get("behavior"), dict) else {}
+    )
     tone = persona.get("tone", "warm")
     if not isinstance(tone, str) or tone not in _TONES:
         tone = "warm"
@@ -300,16 +304,16 @@ def load_flags() -> MemorantFlags:
 
 
 _INGEST_DEFAULTS: dict[str, Any] = {
-    "max_bytes_file": 5 * 1024 * 1024,       # markdown/text 单文件
-    "max_bytes_paste": 1 * 1024 * 1024,       # 粘贴文本
-    "max_bytes_binary": 10 * 1024 * 1024,     # word/pdf 单文件
-    "max_bytes_url": 5 * 1024 * 1024,         # url 抓取
-    "extract_max_bytes": 100 * 1024,          # 提取纯文本缓存上限
+    "max_bytes_file": 5 * 1024 * 1024,  # markdown/text 单文件
+    "max_bytes_paste": 1 * 1024 * 1024,  # 粘贴文本
+    "max_bytes_binary": 10 * 1024 * 1024,  # word/pdf 单文件
+    "max_bytes_url": 5 * 1024 * 1024,  # url 抓取
+    "extract_max_bytes": 100 * 1024,  # 提取纯文本缓存上限
     "url_timeout_seconds": 10.0,
-    "source_allow_dirs": [],                  # 本地文件额外白名单（默认仅 MEMORANT_ROOT）
-    "batch_max_files": 1000,                  # 批量目录导入数量上限（扫描阶段截断）
-    "batch_max_bytes": 524288000,             # 批量总字节上限 500MB（仅统计成功落盘项）
-    "batch_max_seconds": 300,                 # 批量处理时间上限（秒）
+    "source_allow_dirs": [],  # 本地文件额外白名单（默认仅 MEMORANT_ROOT）
+    "batch_max_files": 1000,  # 批量目录导入数量上限（扫描阶段截断）
+    "batch_max_bytes": 524288000,  # 批量总字节上限 500MB（仅统计成功落盘项）
+    "batch_max_seconds": 300,  # 批量处理时间上限（秒）
 }
 
 
@@ -321,7 +325,10 @@ def get_ingest_settings() -> dict[str, Any]:
     """
     raw = _load_settings_json_merged()
     ingest = raw.get("ingest") if isinstance(raw.get("ingest"), dict) else {}
-    return {**{k: v for k, v in _INGEST_DEFAULTS.items()}, **{k: v for k, v in ingest.items() if k in _INGEST_DEFAULTS}}
+    return {
+        **{k: v for k, v in _INGEST_DEFAULTS.items()},
+        **{k: v for k, v in ingest.items() if k in _INGEST_DEFAULTS},
+    }
 
 
 def settings_root() -> str | None:

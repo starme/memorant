@@ -328,9 +328,15 @@ def batch_ingest_dir(
 
     settings = get_ingest_settings()
     try:
-        max_files = _coerce_limit(max_files, int(settings.get("batch_max_files", 1000)), "max_files")
-        max_bytes = _coerce_limit(max_bytes, int(settings.get("batch_max_bytes", 524288000)), "max_bytes")
-        max_seconds = _coerce_limit(max_seconds, float(settings.get("batch_max_seconds", 300)), "max_seconds")
+        max_files = _coerce_limit(
+            max_files, int(settings.get("batch_max_files", 1000)), "max_files"
+        )
+        max_bytes = _coerce_limit(
+            max_bytes, int(settings.get("batch_max_bytes", 524288000)), "max_bytes"
+        )
+        max_seconds = _coerce_limit(
+            max_seconds, float(settings.get("batch_max_seconds", 300)), "max_seconds"
+        )
     except ValueError as e:
         return {"error": "VALIDATION_ERROR", "message": str(e)}
 
@@ -538,7 +544,9 @@ def _write_report(summary: dict[str, Any]) -> None:
 
     import tempfile
 
-    fd, temp_name = tempfile.mkstemp(prefix=".batch-", suffix=".tmp", dir=str(batch_dir))
+    fd, temp_name = tempfile.mkstemp(
+        prefix=".batch-", suffix=".tmp", dir=str(batch_dir)
+    )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))

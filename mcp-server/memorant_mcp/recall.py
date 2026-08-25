@@ -29,7 +29,9 @@ INACTIVE = {
 
 
 def _tokenize(text: str) -> set[str]:
-    return {t for t in re.split(r"[^\w]+", text.lower(), flags=re.UNICODE) if len(t) >= 2}
+    return {
+        t for t in re.split(r"[^\w]+", text.lower(), flags=re.UNICODE) if len(t) >= 2
+    }
 
 
 def _parse_time(value: Any) -> float:
@@ -138,8 +140,10 @@ def recall_memories(
         if negative and tokens and overlap < neg_min:
             continue
         score = _score(memory, tokens, project, freshness=freshness)
-        if tokens and score < 0.2 and not (
-            project and (memory.get("scope") or {}).get("project") == project
+        if (
+            tokens
+            and score < 0.2
+            and not (project and (memory.get("scope") or {}).get("project") == project)
         ):
             if not (negative and overlap >= neg_min):
                 continue
@@ -148,9 +152,7 @@ def recall_memories(
 
     results: list[dict[str, Any]] = []
     for score, memory, overlap in ranked[:limit]:
-        view = build_trust_view(
-            memory, settings=settings, overlap=overlap
-        )
+        view = build_trust_view(memory, settings=settings, overlap=overlap)
         item = {
             "memory_id": memory.get("memory_id"),
             "path": memory.get("path") or memory.get("legacy_path"),
@@ -187,7 +189,9 @@ def recall_memories(
     }
 
 
-def format_recall_context(payload: dict[str, Any], *, max_chars: int = MAX_CHARS) -> str:
+def format_recall_context(
+    payload: dict[str, Any], *, max_chars: int = MAX_CHARS
+) -> str:
     """Format dual-channel recall: Agent rails primary; human short-asks when present."""
     lines = ["Memorant recall (trust-aware):"]
     human_hints: list[str] = []

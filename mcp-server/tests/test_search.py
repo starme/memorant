@@ -29,9 +29,7 @@ def test_search_uses_isolated_root_and_project_filter(
     assert results[0]["match"] == "timeout while indexing"
 
 
-def test_search_honors_limit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_search_honors_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_entry(tmp_path, "bugs/one.md", "memorant", "same needle")
     _write_entry(tmp_path, "bugs/two.md", "memorant", "same needle")
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))

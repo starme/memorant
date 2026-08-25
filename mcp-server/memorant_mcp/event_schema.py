@@ -46,7 +46,9 @@ class EventInput(BaseModel):
 
     def canonical_payload(self) -> bytes:
         data = self.model_dump(mode="json", exclude_none=False)
-        data["evidence_excerpt"] = bounded_evidence(data.get("evidence_excerpt")) or None
+        data["evidence_excerpt"] = (
+            bounded_evidence(data.get("evidence_excerpt")) or None
+        )
         # Match semantic_payload_hash field set / encoding exactly.
         payload = {
             "event_type": data.get("event_type"),
@@ -68,7 +70,9 @@ class EventInput(BaseModel):
 
     def to_event(self) -> Event:
         data = self.model_dump(mode="json")
-        data["evidence_excerpt"] = bounded_evidence(data.get("evidence_excerpt")) or None
+        data["evidence_excerpt"] = (
+            bounded_evidence(data.get("evidence_excerpt")) or None
+        )
         return Event(
             event_id=uuid.uuid4().hex,
             observed_at=datetime.now(timezone.utc),

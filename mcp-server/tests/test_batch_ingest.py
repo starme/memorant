@@ -157,9 +157,7 @@ def test_max_bytes_stops_after_successful_items(
     assert result["success"] >= 1
 
 
-def test_max_seconds_stops(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_max_seconds_stops(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     d = tmp_path / "notes"
     for i in range(3):
@@ -327,9 +325,7 @@ def test_distill_synthesizes_doc_commit_event_idempotent(
     # 合成事件只写一次：journal 下只有一个 doc.commit 事件文件
     journal_files = list((tmp_path / "journal").glob("**/*.md"))
     doc_commit = [
-        f
-        for f in journal_files
-        if "doc.commit" in f.read_text(encoding="utf-8")
+        f for f in journal_files if "doc.commit" in f.read_text(encoding="utf-8")
     ]
     assert len(doc_commit) == 1
     assert first["distilled"][0]["synthetic_event_id"]

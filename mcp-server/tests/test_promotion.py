@@ -44,7 +44,9 @@ def _provisional(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
             confidence=0.5,
             scope={"project": "api"},
             evidence=[
-                EvidenceRef(source="log", excerpt="pool exhausted", session_id="s-origin")
+                EvidenceRef(
+                    source="log", excerpt="pool exhausted", session_id="s-origin"
+                )
             ],
             source_event_ids=["d" * 32],
             origin_session_ids=["s-origin"],

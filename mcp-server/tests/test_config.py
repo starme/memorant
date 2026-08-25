@@ -24,7 +24,9 @@ def _clear_flag_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-def test_env_overrides_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_env_overrides_defaults(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     _clear_flag_env(monkeypatch)
     home = tmp_path / "home"
     (home / ".claude").mkdir(parents=True)
@@ -87,7 +89,9 @@ def test_local_md_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     assert flags.event_recall is False
 
 
-def test_ingest_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ingest_settings_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _clear_flag_env(monkeypatch)
     home = tmp_path / "home"
     (home / ".claude").mkdir(parents=True)
@@ -99,7 +103,9 @@ def test_ingest_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert ingest["source_allow_dirs"] == []
 
 
-def test_ingest_settings_overridable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ingest_settings_overridable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _clear_flag_env(monkeypatch)
     home = tmp_path / "home"
     claude = home / ".claude"

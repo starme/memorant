@@ -31,7 +31,9 @@ def _strip_url_credentials(url: str) -> str:
     return url
 
 
-def _canonical_source(kind: str, *, path: str | None, url: str | None, content: str | None) -> str:
+def _canonical_source(
+    kind: str, *, path: str | None, url: str | None, content: str | None
+) -> str:
     """规范化来源，用于 doc_id 派生（契约 §3.4）。"""
     if kind == "paste":
         text = content or ""
@@ -50,7 +52,13 @@ def _canonical_source(kind: str, *, path: str | None, url: str | None, content: 
     return f"file:{real}"
 
 
-def doc_id_for(kind: str, *, path: str | None = None, url: str | None = None, content: str | None = None) -> str:
+def doc_id_for(
+    kind: str,
+    *,
+    path: str | None = None,
+    url: str | None = None,
+    content: str | None = None,
+) -> str:
     canonical = _canonical_source(kind, path=path, url=url, content=content)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
 
@@ -101,7 +109,9 @@ def _resolve_local_dir(path: str) -> str:
     raise PermissionError(f"path outside allowed source dirs: {path}")
 
 
-def _read_raw_source(kind: str, *, path: str | None, url: str | None, content: str | None) -> tuple[bytes, str]:
+def _read_raw_source(
+    kind: str, *, path: str | None, url: str | None, content: str | None
+) -> tuple[bytes, str]:
     """读取原始字节与规范化来源；URL 拒绝 file://。"""
     if kind in {"markdown", "text", "word", "pdf"}:
         if path:
@@ -144,7 +154,9 @@ def _size_limits() -> dict[str, int]:
     }
 
 
-def _extract_text_for_kind(kind: str, *, path: str | None, url: str | None, content: str | None, raw: bytes) -> tuple[str, bool, bool]:
+def _extract_text_for_kind(
+    kind: str, *, path: str | None, url: str | None, content: str | None, raw: bytes
+) -> tuple[str, bool, bool]:
     """提取文本；返回 (text, parsed_ok, extractable)。binary 类型委托 parsers。"""
     from .parsers import extract_text
 
@@ -162,7 +174,13 @@ class SizeExceededError(Exception):
         super().__init__(f"size exceeded: {actual} > {limit}")
 
 
-def ingest_source(kind: str, *, path: str | None = None, url: str | None = None, content: str | None = None) -> dict[str, Any]:
+def ingest_source(
+    kind: str,
+    *,
+    path: str | None = None,
+    url: str | None = None,
+    content: str | None = None,
+) -> dict[str, Any]:
     """留存一份资料。返回 dict，携带 doc_id/content_sha256/duplicate/status。"""
     if kind not in _SOURCE_TYPES:
         return {"error": "UNSUPPORTED_TYPE", "message": f"unsupported kind: {kind}"}
@@ -365,7 +383,9 @@ def list_sources(
     src_dir = root / "source_docs"
     results: list[dict[str, Any]] = []
     if src_dir.is_dir():
-        for path in sorted(src_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
+        for path in sorted(
+            src_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True
+        ):
             try:
                 post = frontmatter.load(path)
             except (OSError, TypeError, UnicodeDecodeError, ValueError):

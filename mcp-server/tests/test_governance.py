@@ -16,7 +16,9 @@ from memorant_mcp.memory_schema import (
 from memorant_mcp.memory_store import read_memory, write_memory
 
 
-def _write_memory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, title: str = "DB pool") -> dict:
+def _write_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, title: str = "DB pool"
+) -> dict:
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     return write_memory(
         MemoryWriteInput(
@@ -59,7 +61,9 @@ def test_merge_candidate_produces_activity_only(
 ) -> None:
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     mem = _write_memory(tmp_path, monkeypatch)
-    result = govern_source("d" * 32, "merge_candidate", related_memory_id=mem["memory_id"])
+    result = govern_source(
+        "d" * 32, "merge_candidate", related_memory_id=mem["memory_id"]
+    )
     assert result["action"] == "merge_candidate"
     assert result["attention"] == "needs_attention"
     # 不改 memory 状态
@@ -73,7 +77,10 @@ def test_conflict_marks_without_changing_memory(
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     mem = _write_memory(tmp_path, monkeypatch)
     result = govern_source(
-        "d" * 32, "conflict", related_memory_id=mem["memory_id"], replacement_claim="new claim"
+        "d" * 32,
+        "conflict",
+        related_memory_id=mem["memory_id"],
+        replacement_claim="new claim",
     )
     assert result["action"] == "conflict"
     assert result["attention"] == "conflict"

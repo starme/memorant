@@ -131,7 +131,11 @@ def test_persona_guidance_mentions_selectivity(
     monkeypatch.chdir(tmp_path)
     text = persona_distill_guidance(load_settings())
     assert "selectivity=high" in text
-    assert "false forms worse" in text.lower() or "False forms" in text or "prefer skip" in text
+    assert (
+        "false forms worse" in text.lower()
+        or "False forms" in text
+        or "prefer skip" in text
+    )
 
 
 def test_distill_context_includes_persona(

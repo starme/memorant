@@ -24,12 +24,17 @@ def govern_source(
     """执行治理动作。返回 {action, produced, doc_id, memory_path, attention}。"""
     if action == "archive":
         if not related_memory_id:
-            return {"error": "VALIDATION_ERROR", "message": "archive requires related_memory_id"}
+            return {
+                "error": "VALIDATION_ERROR",
+                "message": "archive requires related_memory_id",
+            }
         try:
             current = read_memory(related_memory_id)
         except FileNotFoundError:
             return {"error": "NOT_FOUND", "message": related_memory_id}
-        updated = update_memory_fields(current["path"], {"lifecycle": LifecycleState.superseded.value})
+        updated = update_memory_fields(
+            current["path"], {"lifecycle": LifecycleState.superseded.value}
+        )
         append_activity(
             "memory.archive",
             f"doc={doc_id} -> {related_memory_id}",
@@ -46,7 +51,10 @@ def govern_source(
 
     if action == "dedupe":
         if not related_memory_id:
-            return {"error": "VALIDATION_ERROR", "message": "dedupe requires related_memory_id"}
+            return {
+                "error": "VALIDATION_ERROR",
+                "message": "dedupe requires related_memory_id",
+            }
         try:
             current = read_memory(related_memory_id)
         except FileNotFoundError:

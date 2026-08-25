@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 
 
-def run_cli(tmp_path: Path, payload: dict | str) -> tuple[subprocess.CompletedProcess[str], list]:
+def run_cli(
+    tmp_path: Path, payload: dict | str
+) -> tuple[subprocess.CompletedProcess[str], list]:
     env = {**os.environ, "MEMORANT_ROOT": str(tmp_path)}
     raw = payload if isinstance(payload, str) else json.dumps(payload)
     result = subprocess.run(
@@ -170,7 +172,9 @@ def test_test_success_injects_proactive_distill(tmp_path: Path) -> None:
     context = output["hookSpecificOutput"]["additionalContext"]
     assert "Distill" in context
     assert "Do NOT ask" in context
-    assert "project_key:" in files[0].read_text() or "project_key" in files[0].read_text()
+    assert (
+        "project_key:" in files[0].read_text() or "project_key" in files[0].read_text()
+    )
 
 
 @pytest.mark.parametrize(
@@ -212,3 +216,56 @@ def test_bad_json_and_missing_config_fail_open(tmp_path: Path) -> None:
     )
     assert result.returncode == 0
     assert json.loads(result.stdout) == {}
+
+
+def test_legacy_migration_hint_persists_reminded_and_deduplicates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """首次启动提示落盘 reminded 标记，避免每次 SessionStart 重复打扰（P0-3）。"""
+    from memorant_mcp import hook_cli
+
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    bug = tmp_path / "bugs" / "example.md"
+    bug.parent.mkdir()
+    bug.write_text("---\ntype: bug\ntitle: t\n---\n\nbody\n")
+
+    first = hook_cli._legacy_migration_hint()
+    assert first and "迁移" in first
+
+    state_path = tmp_path / ".memorant" / "migration-state.json"
+    assert state_path.is_file()
+    assert json.loads(state_path.read_text(encoding="utf-8"))["reminded"] is True
+
+    # 已提醒 → 不再重复提示。
+    assert hook_cli._legacy_migration_hint() == ""
+
+
+def test_legacy_migration_hint_none_when_no_legacy_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from memorant_mcp import hook_cli
+
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    assert hook_cli._legacy_migration_hint() == ""
+
+
+def test_session_start_migration_hint_not_tied_to_recall(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SessionStart 的迁移提示必须与召回结果解耦：有召回命中时仍提示迁移。"""
+    from memorant_mcp import hook_cli
+
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    bug = tmp_path / "bugs" / "example.md"
+    bug.parent.mkdir()
+    bug.write_text("---\ntype: bug\ntitle: t\n---\n\nbody\n")
+
+    # 模拟召回有命中：迁移提示仍须出现（而非被召回短路）。
+    monkeypatch.setattr(hook_cli, "_recall_context", lambda *a, **k: "RECALL_CONTEXT")
+
+    output = hook_cli.process(
+        {"hook_event_name": "SessionStart", "session_id": "s1", "cwd": str(tmp_path)}
+    )
+    context = output["hookSpecificOutput"]["additionalContext"]
+    assert "迁移" in context
+    assert "RECALL_CONTEXT" in context

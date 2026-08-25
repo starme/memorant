@@ -39,6 +39,7 @@ from .hook_core import (
     redact_secrets,
     semantic_payload_hash,
 )
+from .host_adapters import detect_host, get_adapter
 from .journal import append_event, list_pending_events
 from .memory_schema import (
     EvidenceRef,
@@ -49,11 +50,13 @@ from .memory_schema import (
     TrustTier,
 )
 from .memory_store import list_memories, read_memory, write_memory
+from .migration import detect_legacy_data, migrate_legacy
 from .naming import (
     ConflictError,
     PathForbiddenError,
     ensure_dir,
     filename_for,
+    memorant_root,
     next_arch_sequence,
     resolve_safe_path,
     vault_root,
@@ -82,6 +85,19 @@ mcp = FastMCP(
 )
 
 
+def _attach_degradation_note(payload: dict[str, Any]) -> None:
+    """当当前宿主不具备自动提炼时，附一致的降级说明（非破坏性，不覆盖既有字段）。"""
+    try:
+        adapter = get_adapter(detect_host())
+    except Exception:
+        return
+    if adapter.capabilities.auto_distill:
+        return
+    note = adapter.describe_degradation("auto_distill")
+    if note:
+        payload["degradation_note"] = note
+
+
 def _validate_and_serialize(entry_type: str, fm: dict, title: str) -> dict:
     """Validate frontmatter dict against the type's schema; return cleaned dict."""
     try:
@@ -101,7 +117,9 @@ def _validate_and_serialize(entry_type: str, fm: dict, title: str) -> dict:
         if errs:
             e0 = errs[0]
             loc = ".".join(str(x) for x in e0.get("loc", []))
-            raise ValueError(f"{entry_type} frontmatter invalid at '{loc}': {e0.get('msg')}")
+            raise ValueError(
+                f"{entry_type} frontmatter invalid at '{loc}': {e0.get('msg')}"
+            )
         raise ValueError(f"{entry_type} frontmatter invalid: {e}")
     # Serialize back: dates -> ISO, enums -> values. Exclude None so optional
     # fields that weren't set don't pollute the frontmatter with `null`.
@@ -165,6 +183,7 @@ async def vault_search(
     lines = [f"{r['file']}:{r['line']} — {r['match']}" for r in results]
     return _deprecated(f"{len(results)} match(es):\n" + "\n".join(lines))
 
+
 @mcp.tool(name="vault_create_entry")
 async def vault_create_entry(
     type: str,
@@ -201,7 +220,9 @@ async def vault_create_entry(
             fm["stack"] = stack
         elif stack is None and fm_stack is not None:
             stack = fm_stack  # back-fill the filename param
-        elif stack is not None and fm_stack is not None and list(stack) != list(fm_stack):
+        elif (
+            stack is not None and fm_stack is not None and list(stack) != list(fm_stack)
+        ):
             raise ValueError(
                 f"stack mismatch: top-level {stack!r} vs frontmatter {fm_stack!r}; pass one or make them equal"
             )
@@ -214,11 +235,7 @@ async def vault_create_entry(
             fm["project"] = project
         elif project is None and fm_project is not None:
             project = fm_project  # back-fill the filename param
-        elif (
-            project is not None
-            and fm_project is not None
-            and project != fm_project
-        ):
+        elif project is not None and fm_project is not None and project != fm_project:
             raise ValueError(
                 f"project mismatch: top-level {project!r} vs frontmatter {fm_project!r}; pass one or make them equal"
             )
@@ -528,9 +545,7 @@ async def memorant_feedback(
     path: str,
     action: Annotated[
         str,
-        Field(
-            pattern=r"^(adopted|ignored|corrected|contradicted|successful_reuse)$"
-        ),
+        Field(pattern=r"^(adopted|ignored|corrected|contradicted|successful_reuse)$"),
     ],
     note: str | None = None,
     session_id: str | None = None,
@@ -547,11 +562,7 @@ async def memorant_feedback(
             replacement_claim=replacement_claim,
             success_outcome=success_outcome,
         )
-        attention = (
-            "conflict"
-            if action in {"corrected", "contradicted"}
-            else "info"
-        )
+        attention = "conflict" if action in {"corrected", "contradicted"} else "info"
         append_activity(
             f"memory.feedback.{action}",
             note or action,
@@ -605,9 +616,7 @@ async def memorant_activity(
 ) -> dict[str, Any]:
     """Read non-blocking Memory Activity for a day/project."""
     try:
-        payload = read_activity(
-            day=day, project=project, attention_only=attention_only
-        )
+        payload = read_activity(day=day, project=project, attention_only=attention_only)
         if include_session_summary:
             payload["session_summary"] = session_end_summary(project=project)
         return payload
@@ -641,7 +650,9 @@ async def memorant_list_sources(
     limit: int = 50,
 ) -> dict[str, Any]:
     """列出已留存的资料（只读）。按 status/source_type/project 过滤。"""
-    return list_sources(status=status, source_type=source_type, project=project, limit=limit)
+    return list_sources(
+        status=status, source_type=source_type, project=project, limit=limit
+    )
 
 
 @mcp.tool(
@@ -782,7 +793,12 @@ async def memorant_govern_source(
     replacement_claim: str | None = None,
 ) -> dict[str, Any]:
     """治理去重/合并候选/冲突/归档。只改 memories/ 与 index/，不触碰 source_docs/。"""
-    return govern_source(doc_id, action, related_memory_id=related_memory_id, replacement_claim=replacement_claim)
+    return govern_source(
+        doc_id,
+        action,
+        related_memory_id=related_memory_id,
+        replacement_claim=replacement_claim,
+    )
 
 
 @mcp.tool(name="memorant_confirm_promote")
@@ -908,6 +924,80 @@ async def memorant_batch_scan_dir(
 
 # Keep list_memories import used for future tooling / tests.
 _ = (list_memories, read_memory)
+
+
+@mcp.tool(
+    name="memorant_host_info",
+    annotations={"readOnlyHint": True, "openWorldHint": False},
+)
+async def memorant_host_info() -> dict[str, Any]:
+    """Report the current host adapter and its capability matrix (read-only)."""
+    try:
+        name = detect_host()
+        adapter = get_adapter(name)
+        caps = adapter.capabilities
+        return {
+            "host": name,
+            "capabilities": {
+                "event_capture": caps.event_capture,
+                "recall": caps.recall,
+                "auto_distill": caps.auto_distill,
+                "promotion": caps.promotion,
+                "activity": caps.activity,
+            },
+        }
+    except Exception as e:
+        return {"error": "ERROR", "message": str(e)}
+
+
+@mcp.tool(name="memorant_migrate")
+async def memorant_migrate(
+    dry_run: bool = False,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """Migrate legacy bugs/snippets/daily/arch notes into Memory Envelopes.
+
+    - dry_run=True: preview only (list what would migrate), write nothing.
+    - confirm must be True to actually migrate (red line: never auto-migrate).
+    """
+    try:
+        root = memorant_root()
+    except RuntimeError as e:
+        return {"error": "NOT_CONFIGURED", "message": str(e)}
+
+    if dry_run:
+        try:
+            return migrate_legacy(root, dry_run=True)
+        except Exception:
+            return {"error": "ERROR", "message": "migration preview failed"}
+
+    counts = detect_legacy_data(root)
+    total = sum(counts.values())
+    if not confirm:
+        if total == 0:
+            return {
+                "action_required": "none",
+                "legacy_counts": counts,
+                "total": 0,
+            }
+        return {
+            "action_required": "confirm",
+            "legacy_counts": counts,
+            "total": total,
+            "message": (
+                f"检测到 {total} 条历史数据，是否迁移为 Memorant 记忆？"
+                "请调用 memorant_migrate(confirm=true)。"
+            ),
+        }
+
+    try:
+        result = migrate_legacy(root)
+    except Exception:
+        return {
+            "error": "ERROR",
+            "message": "migration failed; see the local migration report",
+        }
+    return result
 
 
 def main() -> None:

@@ -208,9 +208,7 @@ def test_append_event_tool_schema_exposes_enum_and_limits() -> None:
 
 
 @pytest.mark.parametrize("command", ["memorant-mcp", "memorant-hook"])
-def test_installed_cli_entrypoints_smoke(
-    command: str, tmp_path: Path
-) -> None:
+def test_installed_cli_entrypoints_smoke(command: str, tmp_path: Path) -> None:
     executable = Path(sys.executable).with_name(command)
     env = {**os.environ, "HOME": str(tmp_path)}
     env.pop("MEMORANT_ROOT", None)

@@ -76,7 +76,9 @@ def resolve_project_identity(
         label = (explicit_project or Path(normalized).name or basename)[:256]
         if explicit_project and explicit_project not in aliases:
             aliases.insert(0, explicit_project[:256])
-        return ProjectIdentity(project_key=key, project_label=label, aliases=tuple(aliases))
+        return ProjectIdentity(
+            project_key=key, project_label=label, aliases=tuple(aliases)
+        )
 
     if git_root:
         real = str(Path(git_root).resolve())
@@ -84,7 +86,9 @@ def resolve_project_identity(
         label = (explicit_project or Path(git_root).name or basename)[:256]
         if explicit_project and explicit_project not in aliases:
             aliases.insert(0, explicit_project[:256])
-        return ProjectIdentity(project_key=key, project_label=label, aliases=tuple(aliases))
+        return ProjectIdentity(
+            project_key=key, project_label=label, aliases=tuple(aliases)
+        )
 
     label = (explicit_project or basename)[:256] or "unknown"
     key = _key_from_normalized(f"cwd:{path}")

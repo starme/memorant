@@ -14,9 +14,6 @@ from memorant_mcp.journal import append_event, list_pending_events, redact_secre
 from memorant_mcp.server import (
     memorant_append_event,
     memorant_list_pending_events,
-    vault_append_entry,
-    vault_delete_entry,
-    vault_update_frontmatter,
 )
 
 BASE = {
@@ -35,9 +32,10 @@ def test_event_input_generates_strict_server_fields() -> None:
     event = EventInput(**BASE).to_event()
     assert event.event_id
     assert event.observed_at.tzinfo is not None
-    assert event.payload_hash == hashlib.sha256(
-        EventInput(**BASE).canonical_payload()
-    ).hexdigest()
+    assert (
+        event.payload_hash
+        == hashlib.sha256(EventInput(**BASE).canonical_payload()).hexdigest()
+    )
     with pytest.raises(ValidationError):
         EventInput(**{**BASE, "event_type": "made.up"})
     with pytest.raises(ValidationError):
@@ -47,9 +45,7 @@ def test_event_input_generates_strict_server_fields() -> None:
 
 
 def test_payload_hash_uses_redacted_normalized_semantics() -> None:
-    first = EventInput(
-        **{**BASE, "evidence_excerpt": "token=first-secret"}
-    ).to_event()
+    first = EventInput(**{**BASE, "evidence_excerpt": "token=first-secret"}).to_event()
     second = EventInput(
         **{**BASE, "evidence_excerpt": "token=second-secret"}
     ).to_event()
@@ -130,10 +126,7 @@ def test_redaction_variants_never_reach_journal(
 
 
 def test_auth_redaction_respects_key_boundaries_and_quotes() -> None:
-    text = (
-        'author="Tal" authority=local auth="alpha" '
-        "AUTH:'beta' Auth = gamma"
-    )
+    text = 'author="Tal" authority=local auth="alpha" AUTH:\'beta\' Auth = gamma'
     redacted = redact_secrets(text)
     assert 'author="Tal"' in redacted
     assert "authority=local" in redacted
@@ -182,11 +175,17 @@ def test_non_dev_events_append_and_enter_pending(
     pending so Flow E can distill them — no Bash hook required, observer/command triggered."""
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     doc = append_event(
-        EventInput(**{**BASE, "event_type": "doc.commit", "evidence_excerpt": "PRD 定稿"})
+        EventInput(
+            **{**BASE, "event_type": "doc.commit", "evidence_excerpt": "PRD 定稿"}
+        )
     )
     decision = append_event(
         EventInput(
-            **{**BASE, "event_type": "decision.adopt", "evidence_excerpt": "采纳 Redis 缓存"}
+            **{
+                **BASE,
+                "event_type": "decision.adopt",
+                "evidence_excerpt": "采纳 Redis 缓存",
+            }
         )
     )
     pending_ids = {x["event_id"] for x in list_pending_events()}
@@ -204,24 +203,14 @@ def test_structured_mcp_tools_return_dicts(
     assert pending["events"][0]["event_id"] == created["event_id"]
 
 
-def test_legacy_mutation_tools_cannot_change_journal_events(
+def test_journal_events_are_append_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     created = append_event(EventInput(**BASE))
     path = tmp_path / created["path"]
     original = path.read_text()
-
-    append_result = asyncio.run(vault_append_entry(created["path"], "changed"))
-    update_result = asyncio.run(
-        vault_update_frontmatter(created["path"], "outcome", "changed")
-    )
-    delete_result = asyncio.run(vault_delete_entry(created["path"], confirm=True))
-
-    assert "IMMUTABLE:" in append_result
-    assert "IMMUTABLE:" in update_result
-    assert "IMMUTABLE:" in delete_result
-    assert append_result.startswith("[deprecated:")
+    # journal 事件不可变；vault_* 变异工具已移除，此处仅验证 append 落盘与幂等。
     assert path.read_text() == original
 
 
@@ -237,8 +226,7 @@ def test_append_never_overwrites_colliding_target(
     )
     monkeypatch.setattr(EventInput, "to_event", lambda self: fixed)
     original_rel = (
-        "journal/2026/07/23/"
-        "20260723T120000000000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md"
+        "journal/2026/07/23/20260723T120000000000Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md"
     )
     original = tmp_path / original_rel
     original.parent.mkdir(parents=True)
@@ -433,9 +421,11 @@ def test_stdlib_reader_matches_legacy_multiline_yaml_scalar(
     tmp_path: Path,
 ) -> None:
     evidence = "first line\nsecond: value\n--- literal marker\nlast line"
-    event = EventInput(
-        **{**BASE, "evidence_excerpt": evidence}
-    ).to_event().model_dump(mode="json")
+    event = (
+        EventInput(**{**BASE, "evidence_excerpt": evidence})
+        .to_event()
+        .model_dump(mode="json")
+    )
     path = tmp_path / "legacy-multiline.md"
     path.write_text(frontmatter.dumps(frontmatter.Post("# event\n", **event)))
 

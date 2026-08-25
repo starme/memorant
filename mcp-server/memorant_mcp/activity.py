@@ -109,8 +109,10 @@ def read_activity(
             continue
         if project and f"project={project}" not in line:
             continue
-        attention = "needs_attention" if "attention=needs_attention" in line else (
-            "conflict" if "attention=conflict" in line else "info"
+        attention = (
+            "needs_attention"
+            if "attention=needs_attention" in line
+            else ("conflict" if "attention=conflict" in line else "info")
         )
         if attention_only and attention == "info":
             continue
@@ -123,7 +125,9 @@ def read_activity(
 def session_end_summary(*, project: str | None = None) -> str:
     payload = read_activity(project=project, limit=200)
     entries = payload.get("entries") or []
-    added = sum(1 for e in entries if "`write`" in e["line"] or "`memory.write`" in e["line"])
+    added = sum(
+        1 for e in entries if "`write`" in e["line"] or "`memory.write`" in e["line"]
+    )
     promoted = sum(1 for e in entries if "`promote`" in e["line"])
     conflicts = sum(1 for e in entries if e.get("attention") == "conflict")
     attention = sum(1 for e in entries if e.get("attention") == "needs_attention")

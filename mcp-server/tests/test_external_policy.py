@@ -13,7 +13,9 @@ from memorant_mcp.external_policy import (
 )
 
 
-def test_empty_policy_allows_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_empty_policy_allows_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     policy = load_policy()
     assert policy.enabled_sources == []
@@ -24,16 +26,24 @@ def test_empty_policy_allows_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyP
         assert external_allowed(t, policy) is False
 
 
-def test_enabled_source_is_allowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enabled_source_is_allowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     policy = policy_from_dict(
-        {"enabled_sources": ["url"], "prohibited_by_type": [], "require_confirmation": True}
+        {
+            "enabled_sources": ["url"],
+            "prohibited_by_type": [],
+            "require_confirmation": True,
+        }
     )
     assert external_allowed("url", policy) is True
     assert external_allowed("pdf", policy) is False
 
 
-def test_prohibited_overrides_enabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_prohibited_overrides_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     policy = policy_from_dict(
         {"enabled_sources": ["url", "pdf"], "prohibited_by_type": ["pdf"]}
@@ -42,7 +52,9 @@ def test_prohibited_overrides_enabled(tmp_path: Path, monkeypatch: pytest.Monkey
     assert external_allowed("url", policy) is True
 
 
-def test_default_allowed_true_is_still_false(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_allowed_true_is_still_false(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     # 防御「模糊配置绕过」：配置写 default_allowed=true 也不放行。
     policy = policy_from_dict(
@@ -68,7 +80,9 @@ def test_unknown_source_type_not_allowed() -> None:
     assert external_allowed("weird_type", policy) is False
 
 
-def test_load_policy_from_yaml_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_policy_from_yaml_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
     (tmp_path / "external_source_policy.yaml").write_text(
         "external_sources:\n"

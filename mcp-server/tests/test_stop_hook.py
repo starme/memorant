@@ -99,7 +99,7 @@ def test_stop_hook_matches_python_case_insensitive_root_key(tmp_path: Path) -> N
     (home / ".claude").mkdir(parents=True)
     (project / ".claude").mkdir(parents=True)
     (project / ".claude" / "memorant.local.md").write_text(
-        f"---\nROOT: \"{configured}\"\n---\n",
+        f'---\nROOT: "{configured}"\n---\n',
         encoding="utf-8",
     )
     _daily(configured, 9)
@@ -132,7 +132,7 @@ def test_stop_hook_supports_historical_vault_root_frontmatter(
     (home / ".claude").mkdir(parents=True)
     (project / ".claude").mkdir(parents=True)
     (project / ".claude" / "vault.local.md").write_text(
-        f"---\nVAULT_ROOT: \"{configured}\"\n---\n",
+        f'---\nVAULT_ROOT: "{configured}"\n---\n',
         encoding="utf-8",
     )
     _daily(configured, 11)

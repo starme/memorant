@@ -109,9 +109,7 @@ def test_dry_run_then_ingest_results_consistent(
     assert preview_status["big.md"] == "failed"
 
     real = batch_ingest_dir(str(d))
-    real_status = {
-        i["path"].rsplit("/", 1)[-1]: i["status"] for i in real["items"]
-    }
+    real_status = {i["path"].rsplit("/", 1)[-1]: i["status"] for i in real["items"]}
     assert real_status["new.md"] == "success"
     assert real_status["dup.txt"] == "skipped"
     assert real_status["big.md"] == "failed"
@@ -214,9 +212,9 @@ def test_batch_report_has_counts_and_redacted_detail(
         assert str(tmp_path) not in item["path"]
         assert item["path"].startswith("notes/")
 
-    report_text = next(
-        (tmp_path / ".memorant" / "batch").glob("*.md")
-    ).read_text(encoding="utf-8")
+    report_text = next((tmp_path / ".memorant" / "batch").glob("*.md")).read_text(
+        encoding="utf-8"
+    )
     assert str(tmp_path) not in report_text
 
 
@@ -244,9 +242,7 @@ def test_batch_partial_failure_rerun_completes_only_failed(
     assert second["success"] == 1
     assert second["failed"] == 0
 
-    statuses = {
-        i["path"].rsplit("/", 1)[-1]: i["status"] for i in second["items"]
-    }
+    statuses = {i["path"].rsplit("/", 1)[-1]: i["status"] for i in second["items"]}
     assert statuses["ok.md"] == "skipped"
     assert statuses["big.md"] == "success"
     assert len(list((tmp_path / "source_docs").glob("*.md"))) == 2
@@ -291,9 +287,9 @@ def test_batch_redacts_secrets_in_distill_excerpt(
     result = batch_ingest_dir(str(d), distill=True)
     assert result["success"] == 1
 
-    report_text = next(
-        (tmp_path / ".memorant" / "batch").glob("*.md")
-    ).read_text(encoding="utf-8")
+    report_text = next((tmp_path / ".memorant" / "batch").glob("*.md")).read_text(
+        encoding="utf-8"
+    )
     assert "supersecret123" not in report_text
 
     journal_files = list((tmp_path / "journal").glob("**/*.md"))
@@ -321,7 +317,9 @@ def test_batch_prompt_injection_flagged_not_executed(
     result = batch_ingest_dir(str(d), distill=True)
     assert result["success"] == 2
 
-    by_doc = {item["path"].rsplit("/", 1)[-1]: item["doc_id"] for item in result["items"]}
+    by_doc = {
+        item["path"].rsplit("/", 1)[-1]: item["doc_id"] for item in result["items"]
+    }
     distill_map = {p["doc_id"]: p for p in result["distilled"]}
 
     inject_prep = distill_map[by_doc["inject.md"]]

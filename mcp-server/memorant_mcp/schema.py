@@ -56,7 +56,9 @@ class _Common(BaseModel):
 
 class BugFrontmatter(_Common):
     type: EntryType = Field(default=EntryType.bug, frozen=True)
-    stack: list[str] = Field(..., min_length=1, description="技术栈，如 [Node, Express]")
+    stack: list[str] = Field(
+        ..., min_length=1, description="技术栈，如 [Node, Express]"
+    )
     version: dict = Field(
         ...,
         description="关键依赖版本，如 {node: 20, express: '4.18.2'}",

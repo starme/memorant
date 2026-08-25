@@ -72,9 +72,9 @@ class MemoryEnvelope(BaseModel):
     source_event_ids: list[Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")]] = Field(
         min_length=1, max_length=64
     )
-    independent_success_keys: list[Annotated[str, Field(min_length=1, max_length=256)]] = (
-        Field(default_factory=list, max_length=64)
-    )
+    independent_success_keys: list[
+        Annotated[str, Field(min_length=1, max_length=256)]
+    ] = Field(default_factory=list, max_length=64)
     related: list[Annotated[str, Field(min_length=1, max_length=256)]] = Field(
         default_factory=list, max_length=32
     )
@@ -84,8 +84,8 @@ class MemoryEnvelope(BaseModel):
     recall_count: int = Field(default=0, ge=0)
     last_recalled_at: datetime | None = None
     source_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
-    origin_session_ids: list[Annotated[str, Field(min_length=1, max_length=256)]] = Field(
-        default_factory=list, max_length=32
+    origin_session_ids: list[Annotated[str, Field(min_length=1, max_length=256)]] = (
+        Field(default_factory=list, max_length=32)
     )
     legacy_path: str | None = Field(default=None, max_length=512)
     # 季节钟：预期复现节奏（冻结 §3.4）。ad-hoc 走绝对天数；annual/quarterly 在
@@ -135,8 +135,8 @@ class MemoryWriteInput(BaseModel):
         default_factory=list, max_length=32
     )
     supersedes: str | None = Field(default=None, max_length=256)
-    origin_session_ids: list[Annotated[str, Field(min_length=1, max_length=256)]] = Field(
-        default_factory=list, max_length=32
+    origin_session_ids: list[Annotated[str, Field(min_length=1, max_length=256)]] = (
+        Field(default_factory=list, max_length=32)
     )
     body: str | None = Field(default=None, max_length=20_000)
     recurrence_cadence: Literal["ad-hoc", "quarterly", "annual"] = "ad-hoc"
@@ -156,7 +156,9 @@ class MemoryWriteInput(BaseModel):
             "source_event_ids": sorted(self.source_event_ids),
         }
         return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+            json.dumps(
+                payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
         ).hexdigest()
 
     def to_envelope(self) -> MemoryEnvelope:

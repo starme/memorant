@@ -64,9 +64,7 @@ def test_shim_precompact_unicode_context_bypasses_json_byte_gate(
     hook_path = fake_root / "mcp-server" / "memorant_mcp" / "hook_cli.py"
     hook_path.parent.mkdir(parents=True)
     hook_path.write_text(
-        "import sys\n"
-        "sys.stdin.read()\n"
-        "sys.stdout.write('记忆注入提示。' * 3000)\n"
+        "import sys\nsys.stdin.read()\nsys.stdout.write('记忆注入提示。' * 3000)\n"
     )
     result = _run_shim(
         tmp_path,
@@ -83,7 +81,11 @@ def test_shim_precompact_unicode_context_bypasses_json_byte_gate(
 def test_shim_non_precompact_keeps_json_gate(tmp_path: Path) -> None:
     result = _run_shim(
         tmp_path,
-        {"hook_event_name": "PreCompactExtra", "session_id": "s1", "cwd": "/work/project"},
+        {
+            "hook_event_name": "PreCompactExtra",
+            "session_id": "s1",
+            "cwd": "/work/project",
+        },
     )
     assert result.returncode == 0
     assert json.loads(result.stdout) == {}

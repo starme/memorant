@@ -32,9 +32,7 @@ _PRIVATE_KEY_BLOCK = re.compile(
     r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----",
     re.DOTALL | re.IGNORECASE,
 )
-_AUTHORIZATION = re.compile(
-    r"(?i)\bAuthorization\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+"
-)
+_AUTHORIZATION = re.compile(r"(?i)\bAuthorization\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+")
 _BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 _SENSITIVE_KEY = (
     r"(?:[A-Za-z0-9]+[_-])*(?:secret|token|password|passwd|pwd|api[_-]?key"
@@ -120,7 +118,7 @@ def semantic_payload_hash(data: dict[str, Any]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def _read_local_root(path: Path, *, allow_vault_root: bool = False) -> str | None:
+def _read_local_root(path: Path) -> str | None:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -130,33 +128,25 @@ def _read_local_root(path: Path, *, allow_vault_root: bool = False) -> str | Non
     end = text.find("\n---", 3)
     if end == -1:
         return None
-    values: dict[str, str] = {}
     for line in text[3:end].splitlines():
         key, separator, value = line.partition(":")
         normalized = key.strip().lower()
-        if separator and (
-            normalized == "root"
-            or (allow_vault_root and normalized == "vault_root")
-        ):
+        if separator and normalized == "root":
             value = value.strip().strip("\"'")
             if value:
-                values[normalized] = value
-    return values.get("root") or values.get("vault_root")
+                return value
+    return None
 
 
 def _find_local(filename: str) -> str | None:
     home = Path.home()
     user_config = home / ".claude" / filename
-    allow_vault_root = filename == "vault.local.md"
-    root = _read_local_root(user_config, allow_vault_root=allow_vault_root)
+    root = _read_local_root(user_config)
     if root:
         return root
     current = Path.cwd()
     while True:
-        root = _read_local_root(
-            current / ".claude" / filename,
-            allow_vault_root=allow_vault_root,
-        )
+        root = _read_local_root(current / ".claude" / filename)
         if root:
             return root
         if current.resolve() == home.resolve():
@@ -169,7 +159,7 @@ def _find_local(filename: str) -> str | None:
 
 
 def discover_root() -> str:
-    """Priority: MEMORANT_ROOT > settings.json root > memorant.local.md > VAULT_*."""
+    """Priority: MEMORANT_ROOT > settings.json root > memorant.local.md."""
     root = os.environ.get("MEMORANT_ROOT", "").strip()
     if not root:
         try:
@@ -186,10 +176,6 @@ def discover_root() -> str:
                 root = ""
     if not root:
         root = (_find_local("memorant.local.md") or "").strip()
-    if not root:
-        root = os.environ.get("VAULT_ROOT", "").strip()
-    if not root:
-        root = (_find_local("vault.local.md") or "").strip()
     if root:
         return os.path.realpath(os.path.expanduser(root))
     raise RuntimeError("MEMORANT_ROOT is not configured")
@@ -226,9 +212,8 @@ def _validate_input(data: dict[str, Any]) -> dict[str, Any]:
     project_key = data.get("project_key")
     if project_key is None or project_key == "":
         cleaned["project_key"] = None
-    elif (
-        isinstance(project_key, str)
-        and re.fullmatch(r"[0-9a-f]{16,64}", project_key.strip().lower())
+    elif isinstance(project_key, str) and re.fullmatch(
+        r"[0-9a-f]{16,64}", project_key.strip().lower()
     ):
         cleaned["project_key"] = project_key.strip().lower()
     else:
@@ -431,12 +416,13 @@ def _validate_stored_event(
     }
     optional_fields = {"project_key"}
     keys = set(event)
-    if not fixed_fields.issubset(keys) or not keys.issubset(fixed_fields | optional_fields):
+    if not fixed_fields.issubset(keys) or not keys.issubset(
+        fixed_fields | optional_fields
+    ):
         raise ValueError("unexpected event fields")
     project_key = event.get("project_key")
     if project_key is not None and not (
-        isinstance(project_key, str)
-        and re.fullmatch(r"[0-9a-f]{16,64}", project_key)
+        isinstance(project_key, str) and re.fullmatch(r"[0-9a-f]{16,64}", project_key)
     ):
         raise ValueError("invalid project_key")
     if not isinstance(event["event_id"], str) or not re.fullmatch(
@@ -483,7 +469,9 @@ def _validate_stored_event(
         raise ValueError("invalid tags")
 
 
-def _existing_by_hash(journal: Path, payload_hash: str) -> tuple[Path, dict[str, Any]] | None:
+def _existing_by_hash(
+    journal: Path, payload_hash: str
+) -> tuple[Path, dict[str, Any]] | None:
     for path in sorted(journal.glob("**/*.md")):
         try:
             text = path.read_text(encoding="utf-8")
