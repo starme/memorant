@@ -2,7 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from memorant_mcp.memory_schema import EvidenceRef, MemoryKind, MemoryWriteInput, TrustTier
+from memorant_mcp.memory_schema import (
+    EvidenceRef,
+    MemoryKind,
+    MemoryWriteInput,
+    TrustTier,
+)
 from memorant_mcp.memory_store import write_memory
 from memorant_mcp.promotion import apply_feedback, promote_memory
 

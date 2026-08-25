@@ -16,9 +16,13 @@ user's protect-files.sh hook).
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re as _re
 from datetime import date
-from typing import Annotated, Any, Literal, Optional
+from datetime import datetime as _dt
+from datetime import timezone as _tz
+from typing import Annotated, Any, Literal
 
 import frontmatter
 from fastmcp import FastMCP
@@ -26,9 +30,18 @@ from pydantic import Field
 
 from .activity import append_activity, read_activity, session_end_summary
 from .event_schema import EventInput, EventType
+from .external_policy import detect_directives, external_allowed, load_policy
+from .governance import govern_source
+from .hook_core import (
+    append_event_data,
+    bounded_evidence,
+    redact_secrets,
+    semantic_payload_hash,
+)
 from .journal import append_event, list_pending_events
 from .memory_schema import (
     EvidenceRef,
+    LifecycleState,
     MemoryKind,
     MemoryScope,
     MemoryWriteInput,
@@ -46,8 +59,9 @@ from .naming import (
 )
 from .promotion import apply_feedback, promote_memory
 from .recall import format_recall_context, recall_memories
-from .schema import EntryType, SCHEMA_BY_TYPE
+from .schema import SCHEMA_BY_TYPE, EntryType
 from .search import search as do_search
+from .source_docs import ingest_source, list_sources, read_source_doc
 
 mcp = FastMCP(
     "memorant",
@@ -124,8 +138,8 @@ def _deprecated(message: str) -> str:
 )
 async def vault_search(
     query: str,
-    dirs: Optional[list[str]] = None,
-    project: Optional[str] = None,
+    dirs: list[str] | None = None,
+    project: str | None = None,
     limit: int = 20,
 ) -> str:
     """Search the vault for past dev experience — bugs, snippets, daily notes, ADRs.
@@ -151,9 +165,9 @@ async def vault_create_entry(
     title: str,
     body: str,
     frontmatter: dict[str, Any],
-    date_str: Optional[str] = None,
-    stack: Optional[list[str]] = None,
-    project: Optional[Any] = None,
+    date_str: str | None = None,
+    stack: list[str] | None = None,
+    project: Any | None = None,
 ) -> str:
     """Create a new Memorant entry file with schema validation.
 
@@ -232,7 +246,7 @@ async def vault_create_entry(
 async def vault_append_entry(
     path: str,
     content: str,
-    section: Optional[str] = None,
+    section: str | None = None,
 ) -> str:
     """Append content to an existing Memorant file. If `section` is given, append
     under that heading (creating it if missing). Used for daily log growth.
@@ -367,11 +381,11 @@ async def memorant_append_event(
     session_id: Annotated[str, Field(min_length=1, max_length=256)],
     project: Annotated[str, Field(min_length=1, max_length=256)],
     source: Annotated[str, Field(min_length=1, max_length=128)],
-    tool_name: Annotated[Optional[str], Field(max_length=128)] = None,
-    outcome: Annotated[Optional[str], Field(max_length=64)] = None,
-    evidence_excerpt: Annotated[Optional[str], Field(max_length=20_000)] = None,
+    tool_name: Annotated[str | None, Field(max_length=128)] = None,
+    outcome: Annotated[str | None, Field(max_length=64)] = None,
+    evidence_excerpt: Annotated[str | None, Field(max_length=20_000)] = None,
     tags: Annotated[
-        Optional[list[Annotated[str, Field(min_length=1, max_length=64)]]],
+        list[Annotated[str, Field(min_length=1, max_length=64)]] | None,
         Field(max_length=32),
     ] = None,
 ) -> dict[str, Any]:
@@ -399,8 +413,8 @@ async def memorant_append_event(
     annotations={"readOnlyHint": True, "openWorldHint": False},
 )
 async def memorant_list_pending_events(
-    session_id: Optional[str] = None,
-    project: Optional[str] = None,
+    session_id: str | None = None,
+    project: str | None = None,
 ) -> dict[str, Any]:
     """List journal events not referenced by any memory source_event_ids."""
     try:
@@ -419,13 +433,13 @@ async def memorant_write_memory(
     confidence: Annotated[float, Field(ge=0.0, le=1.0)],
     evidence: Annotated[list[dict[str, Any]], Field(min_length=1)],
     source_event_ids: Annotated[list[str], Field(min_length=1)],
-    project: Optional[str] = None,
-    project_key: Optional[str] = None,
-    stack: Optional[list[str]] = None,
-    related: Optional[list[str]] = None,
-    supersedes: Optional[str] = None,
-    origin_session_ids: Optional[list[str]] = None,
-    body: Optional[str] = None,
+    project: str | None = None,
+    project_key: str | None = None,
+    stack: list[str] | None = None,
+    related: list[str] | None = None,
+    supersedes: str | None = None,
+    origin_session_ids: list[str] | None = None,
+    body: str | None = None,
     recurrence_cadence: Literal["ad-hoc", "quarterly", "annual"] = "ad-hoc",
 ) -> dict[str, Any]:
     """Write an A/B Memory Envelope. Requires source_event_ids + evidence. Dedupes by fingerprint.
@@ -473,8 +487,8 @@ async def memorant_write_memory(
 )
 async def memorant_recall(
     query: str,
-    project: Optional[str] = None,
-    trigger: Optional[str] = None,
+    project: str | None = None,
+    trigger: str | None = None,
     limit: int = 5,
     include_provisional: bool = True,
 ) -> dict[str, Any]:
@@ -512,10 +526,10 @@ async def memorant_feedback(
             pattern=r"^(adopted|ignored|corrected|contradicted|successful_reuse)$"
         ),
     ],
-    note: Optional[str] = None,
-    session_id: Optional[str] = None,
-    replacement_claim: Optional[str] = None,
-    success_outcome: Optional[str] = None,
+    note: str | None = None,
+    session_id: str | None = None,
+    replacement_claim: str | None = None,
+    success_outcome: str | None = None,
 ) -> dict[str, Any]:
     """Apply async feedback: adopt/ignore/correct/contradict/successful_reuse."""
     try:
@@ -550,7 +564,7 @@ async def memorant_promote(
     path: str,
     evidence_session_id: Annotated[str, Field(min_length=1, max_length=256)],
     success_outcome: Annotated[str, Field(min_length=1, max_length=64)],
-    evidence_excerpt: Optional[str] = None,
+    evidence_excerpt: str | None = None,
 ) -> dict[str, Any]:
     """Promote provisional (B) → verified (A) with independent success evidence."""
     try:
@@ -578,8 +592,8 @@ async def memorant_promote(
     annotations={"readOnlyHint": True, "openWorldHint": False},
 )
 async def memorant_activity(
-    day: Optional[str] = None,
-    project: Optional[str] = None,
+    day: str | None = None,
+    project: str | None = None,
     attention_only: bool = False,
     include_session_summary: bool = False,
 ) -> dict[str, Any]:
@@ -593,6 +607,187 @@ async def memorant_activity(
         return payload
     except Exception as e:
         return {"error": "ERROR", "message": str(e), "entries": [], "count": 0}
+
+
+# ── 资料落地记忆（Learning-Grounded Memory）工具 ──────────────────
+
+
+def _synthetic_event_id(doc_id: str) -> str:
+    return hashlib.sha256(f"source-doc:{doc_id}".encode()).hexdigest()[:32]
+
+
+@mcp.tool(name="memorant_ingest_source")
+async def memorant_ingest_source(
+    kind: Literal["markdown", "text", "word", "pdf", "url", "paste"],
+    content: str | None = None,
+    path: str | None = None,
+    url: str | None = None,
+) -> dict[str, Any]:
+    """留存一份资料（markdown/text/word/pdf/url/paste），返回 doc_id + content_sha256。原始资料只读留存，不提炼。"""
+    return ingest_source(kind=kind, path=path, url=url, content=content)
+
+
+@mcp.tool(name="memorant_list_sources")
+async def memorant_list_sources(
+    status: Literal["stored", "unparseable"] | None = None,
+    source_type: str | None = None,
+    project: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """列出已留存的资料（只读）。按 status/source_type/project 过滤。"""
+    return list_sources(status=status, source_type=source_type, project=project, limit=limit)
+
+
+@mcp.tool(name="memorant_external_policy")
+async def memorant_external_policy(
+    allowed: bool = False,
+    by_type: list[str] | None = None,
+) -> dict[str, Any]:
+    """查询/请求外发授权。allowed=false 返回当前策略（默认无外发）；allowed=true 要求宿主再次确认。"""
+    policy = load_policy()
+    types = [t for t in (by_type or []) if isinstance(t, str)]
+    summary = {
+        "enabled_sources": policy.enabled_sources,
+        "prohibited_by_type": policy.prohibited_by_type,
+        "default_allowed": False,
+        "require_confirmation": policy.require_confirmation,
+    }
+    if not allowed:
+        return {**summary, "external_used": False, "external_allowed": False}
+    # allowed=true：真实外发必须宿主再次确认（强约束）。
+    prompt_types = types or policy.enabled_sources
+    return {
+        **summary,
+        "external_allowed": True,
+        "prompt_required": True,
+        "prompt_text": f"此资料将发送到外部服务，是否继续？涉及类型 {prompt_types}",
+    }
+
+
+@mcp.tool(name="memorant_confirm_external")
+async def memorant_confirm_external(
+    doc_id: str,
+    confirm: bool = False,
+) -> dict[str, Any]:
+    """逐次外发确认闸门。confirm=false 返回 REFUSED；confirm=true 返回单次授权范围。确认不可缓存、不可默认。"""
+    if not confirm:
+        return {"error": "REFUSED", "message": "未确认外发"}
+    try:
+        doc = read_source_doc(doc_id)
+    except FileNotFoundError:
+        return {"error": "NOT_FOUND", "doc_id": doc_id}
+    return {
+        "external_confirmed": True,
+        "scope": {"doc_id": doc_id, "source_type": doc.get("source_type")},
+    }
+
+
+@mcp.tool(name="memorant_distill_source")
+async def memorant_distill_source(
+    doc_id: str,
+    project: str | None = None,
+    project_key: str | None = None,
+) -> dict[str, Any]:
+    """准备提炼：外发判定 → 注入防护 → 合成 doc.commit 事件 → 返回脱敏提取文本。不做模型推理，提炼由宿主据 extracted_text 完成并复用 memorant_write_memory。"""
+    try:
+        doc = read_source_doc(doc_id)
+    except (FileNotFoundError, ValueError):
+        return {"error": "NOT_FOUND", "doc_id": doc_id}
+
+    if doc.get("status") == "unparseable":
+        return {"error": "UNPARSEABLE", "doc_id": doc_id}
+
+    source_type = doc.get("source_type", "")
+    policy = load_policy()
+    allowed = external_allowed(source_type, policy)
+    prohibited = source_type in policy.prohibited_by_type
+
+    extracted = doc.get("extracted_text") or ""
+    contains_directives = detect_directives(extracted)
+    safe_excerpt = redact_secrets(extracted)
+    excerpt = bounded_evidence(safe_excerpt)
+
+    synthetic_id = _synthetic_event_id(doc_id)
+    event_data = {
+        "event_type": "doc.commit",
+        "session_id": "ingest",
+        "project": project or doc.get("project") or "unknown",
+        "source": "source-doc",
+        "tool_name": None,
+        "outcome": None,
+        "evidence_excerpt": excerpt,
+        "tags": ["source-doc", doc_id],
+    }
+    if project_key or doc.get("project_key"):
+        key = project_key or doc.get("project_key")
+        if isinstance(key, str) and _re.fullmatch(r"[0-9a-f]{16,64}", key):
+            event_data["project_key"] = key
+    event_data["event_id"] = synthetic_id
+    event_data["observed_at"] = _dt.now(_tz.utc).isoformat().replace("+00:00", "Z")
+    event_data["payload_hash"] = semantic_payload_hash(event_data)
+    # 合成 doc.commit 事件按 payload_hash 去重，重复蒸馏命中同一事件（幂等）。
+    append_event_data(event_data, root=vault_root())
+
+    return {
+        "doc_id": doc_id,
+        "synthetic_event_id": synthetic_id,
+        "external_would_be_used": False,
+        "external_allowed": allowed,
+        "prohibited_by_type": prohibited,
+        "contains_directives": contains_directives,
+        "extracted_text": safe_excerpt[:20_000],
+        "memory_id": None,
+    }
+
+
+@mcp.tool(name="memorant_govern_source")
+async def memorant_govern_source(
+    doc_id: str,
+    action: Literal["dedupe", "merge_candidate", "conflict", "archive"],
+    related_memory_id: str | None = None,
+    replacement_claim: str | None = None,
+) -> dict[str, Any]:
+    """治理去重/合并候选/冲突/归档。只改 memories/ 与 index/，不触碰 source_docs/。"""
+    return govern_source(doc_id, action, related_memory_id=related_memory_id, replacement_claim=replacement_claim)
+
+
+@mcp.tool(name="memorant_confirm_promote")
+async def memorant_confirm_promote(
+    memory_id: str,
+) -> dict[str, Any]:
+    """资料经验用户显式确认 promotion（provisional → verified）。复用 update_memory_fields 写 trust_tier=verified + lifecycle=reinforced + 审计。"""
+    from .memory_store import read_memory, update_memory_fields
+
+    try:
+        current = read_memory(memory_id)
+    except (FileNotFoundError, ValueError):
+        return {"error": "NOT_FOUND", "message": memory_id}
+    if current.get("trust_tier") != "provisional":
+        return {
+            "error": "NOT_PROVISIONAL",
+            "message": "only provisional memories can be confirmed",
+            "path": current.get("path"),
+        }
+    updated = update_memory_fields(
+        current["path"],
+        {
+            "trust_tier": "verified",
+            "lifecycle": LifecycleState.reinforced.value,
+        },
+    )
+    append_activity(
+        "memory.confirm_promote",
+        f"资料经验确认 promotion {memory_id}",
+        memory_path=current["path"],
+        attention="info",
+    )
+    return {
+        "confirmed": True,
+        "path": updated["path"],
+        "memory_id": updated.get("memory_id"),
+        "trust_tier": updated.get("trust_tier"),
+        "lifecycle": updated.get("lifecycle"),
+    }
 
 
 # Keep list_memories import used for future tooling / tests.

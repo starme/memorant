@@ -12,7 +12,11 @@ try:
     from .config import load_flags, load_settings, persona_distill_guidance
     from .hook_core import append_hook_event, discover_root
 except ImportError:  # Direct plugin-source execution by the shell shim.
-    from config import load_flags, load_settings, persona_distill_guidance  # type: ignore
+    from config import (  # type: ignore
+        load_flags,
+        load_settings,
+        persona_distill_guidance,
+    )
     from hook_core import append_hook_event, discover_root  # type: ignore
 
 _EVENT_MAP = {
