@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import urllib.error
 import zipfile
 from pathlib import Path
 
@@ -122,3 +123,49 @@ def test_url_http_returns_plain_text(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ok is True
     assert "Hello World" in text
     assert "<html>" not in text
+
+
+# ── P0-5 异常路径：URL 404 / 超时 ───────────────────────────
+
+
+def test_url_404_returns_fetch_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """URL 返回 404 → extract_text 返回 parsed_ok=False，不崩溃。"""
+    from memorant_mcp import parsers
+
+    def fake_fetch_404(url: str, timeout: float, max_bytes: int) -> bytes:
+        raise urllib.error.HTTPError(
+            url, 404, "Not Found", hdrs=None, fp=None
+        )
+
+    monkeypatch.setattr(parsers, "_fetch_url_bytes", fake_fetch_404)
+    text, ok = extract_text("url", url="https://example.com/missing")
+    assert ok is False
+    assert "抓取失败" in text or "404" in text
+
+
+def test_url_timeout_returns_fetch_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """URL 超时（TimeoutError）→ 在超时上限内返回抓取失败，不无限阻塞。"""
+    from memorant_mcp import parsers
+
+    def fake_fetch_timeout(url: str, timeout: float, max_bytes: int) -> bytes:
+        # 断言解析器确实把配置的超时值传入（非无限阻塞）。
+        assert timeout > 0
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(parsers, "_fetch_url_bytes", fake_fetch_timeout)
+    text, ok = extract_text("url", url="https://example.com/slow")
+    assert ok is False
+    assert "抓取失败" in text
+
+
+def test_url_urlerror_returns_fetch_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """URL 网络层 URLError（DNS/连接失败）→ 返回抓取失败，不崩溃。"""
+    from memorant_mcp import parsers
+
+    def fake_fetch_urlerror(url: str, timeout: float, max_bytes: int) -> bytes:
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(parsers, "_fetch_url_bytes", fake_fetch_urlerror)
+    text, ok = extract_text("url", url="https://example.com/down")
+    assert ok is False
+    assert "抓取失败" in text

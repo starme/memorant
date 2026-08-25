@@ -207,7 +207,7 @@ def test_append_event_tool_schema_exposes_enum_and_limits() -> None:
     assert properties["tags"]["anyOf"][0]["items"]["maxLength"] == 64
 
 
-@pytest.mark.parametrize("command", ["memorant-mcp", "vault-mcp"])
+@pytest.mark.parametrize("command", ["memorant-mcp", "memorant-hook"])
 def test_installed_cli_entrypoints_smoke(
     command: str, tmp_path: Path
 ) -> None:

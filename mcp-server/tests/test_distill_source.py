@@ -119,3 +119,61 @@ def test_confirm_promote_promotes_provisional_memory(
     assert result["confirmed"] is True
     assert result["trust_tier"] == "verified"
     assert result["lifecycle"] == "reinforced"
+
+
+# ── P0-3 external_would_be_used 与 external_allowed 独立语义 ──
+
+
+def _write_external_policy_enabling_url(root: Path) -> None:
+    """写入 external_source_policy.yaml，使 url 在 enabled_sources。"""
+    (root / "external_source_policy.yaml").write_text(
+        "external_sources:\n"
+        "  enabled_sources: [url]\n"
+        "  prohibited_by_type: []\n"
+        "  default_allowed: false\n"
+        "  require_confirmation: true\n",
+        encoding="utf-8",
+    )
+
+
+def test_distill_url_external_allowed_true_would_be_used_false(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A6：url 且 enabled_sources=["url"] 时 external_allowed=true 且 external_would_be_used=false，两字段独立。"""
+    from memorant_mcp import parsers
+
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+
+    # mock 抓取，不真连网：url 类型留存 source_type=url
+    def fake_fetch(url: str, timeout: float, max_bytes: int) -> bytes:
+        return b"<html><body>remote knowledge</body></html>"
+
+    monkeypatch.setattr(parsers, "_fetch_url_bytes", fake_fetch)
+
+    ing = asyncio.run(
+        memorant_ingest_source(kind="url", url="https://example.com/doc")
+    )
+    assert ing["source_type"] == "url"
+
+    # 写策略使 url 允许外发
+    _write_external_policy_enabling_url(tmp_path)
+
+    result = asyncio.run(memorant_distill_source(ing["doc_id"]))
+
+    # 两字段独立：external_allowed 反映策略，external_would_be_used 反映实际外发
+    assert result["external_allowed"] is True
+    assert result["external_would_be_used"] is False
+
+
+def test_distill_markdown_external_allowed_false_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """默认策略（无 enabled_sources）下 markdown 不外发，两字段均为 false。"""
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    src = tmp_path / "spec.md"
+    src.write_text("# Spec\n\n本地优先。\n", encoding="utf-8")
+    ing = asyncio.run(memorant_ingest_source(kind="markdown", path=str(src)))
+
+    result = asyncio.run(memorant_distill_source(ing["doc_id"]))
+    assert result["external_allowed"] is False
+    assert result["external_would_be_used"] is False

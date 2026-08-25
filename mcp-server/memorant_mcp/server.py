@@ -61,7 +61,12 @@ from .promotion import apply_feedback, promote_memory
 from .recall import format_recall_context, recall_memories
 from .schema import SCHEMA_BY_TYPE, EntryType
 from .search import search as do_search
-from .source_docs import ingest_source, list_sources, read_source_doc
+from .source_docs import (
+    check_source_integrity,
+    ingest_source,
+    list_sources,
+    read_source_doc,
+)
 
 mcp = FastMCP(
     "memorant",
@@ -638,6 +643,22 @@ async def memorant_list_sources(
     return list_sources(status=status, source_type=source_type, project=project, limit=limit)
 
 
+@mcp.tool(
+    name="memorant_check_source_integrity",
+    annotations={"readOnlyHint": True, "openWorldHint": False},
+)
+async def memorant_check_source_integrity(doc_id: str) -> dict[str, Any]:
+    """只读检测 source_docs/<doc_id> 是否被外部编辑器篡改（hash 变化）。
+
+    只报告，不重写、不静默覆盖：读取 .md 记录的 content_sha256 与 .txt 实际
+    内容重算的 sha256 比对，返回 intact / modified / not_detectable / NOT_FOUND。
+    """
+    try:
+        return check_source_integrity(doc_id)
+    except Exception as e:
+        return {"error": "ERROR", "message": str(e), "doc_id": doc_id}
+
+
 @mcp.tool(name="memorant_external_policy")
 async def memorant_external_policy(
     allowed: bool = False,
@@ -688,7 +709,19 @@ async def memorant_distill_source(
     project: str | None = None,
     project_key: str | None = None,
 ) -> dict[str, Any]:
-    """准备提炼：外发判定 → 注入防护 → 合成 doc.commit 事件 → 返回脱敏提取文本。不做模型推理，提炼由宿主据 extracted_text 完成并复用 memorant_write_memory。"""
+    """准备提炼：外发判定 → 注入防护 → 合成 doc.commit 事件 → 返回脱敏提取文本。不做模型推理，提炼由宿主据 extracted_text 完成并复用 memorant_write_memory。
+
+    external_allowed 与 external_would_be_used 是两个独立语义：
+    - external_allowed：该 source_type 在策略层面是否被允许外发（enabled_sources
+      命中 且 未被 prohibited_by_type 禁止 且 require_confirmation），可 true/false。
+    - external_would_be_used：本次蒸馏是否真的会调用外部模型（实际外发动作），
+      当前无外部模型调用路径，恒为 False。
+
+    因此 external_allowed=True 与 external_would_be_used=False 不矛盾：前者说
+    「这类资料策略上允许外发」，后者说「本次操作没有实际外发」。即便策略允许，
+    真正外发仍须经 memorant_confirm_external 逐次确认后才会发生；未来接入外部
+    模型时 external_would_be_used 应反映「确认后实际外发」的结果，而非仅被允许。
+    """
     try:
         doc = read_source_doc(doc_id)
     except (FileNotFoundError, ValueError):
@@ -768,6 +801,29 @@ async def memorant_confirm_promote(
             "message": "only provisional memories can be confirmed",
             "path": current.get("path"),
         }
+
+    # ── 证据校验（必须在 update_memory_fields 之前，杜绝其静默降级写坏） ──
+    # 契约 §1.3：verified 证据约束 = evidence 非空 或 legacy_path 非空；
+    # 资料经验记忆额外要求至少一条 source.startswith("source-doc:") 的证据。
+    evidence = current.get("evidence") or []
+    legacy_path = current.get("legacy_path")
+    if not evidence and not legacy_path:
+        return {
+            "error": "VALIDATION_ERROR",
+            "message": "verified memory requires evidence",
+            "memory_id": memory_id,
+        }
+    has_source_doc = any(
+        isinstance(e, dict) and str(e.get("source", "")).startswith("source-doc:")
+        for e in evidence
+    )
+    if not has_source_doc and not legacy_path:
+        return {
+            "error": "VALIDATION_ERROR",
+            "message": "source-doc memory requires at least one source-doc: evidence",
+            "memory_id": memory_id,
+        }
+
     updated = update_memory_fields(
         current["path"],
         {

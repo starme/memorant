@@ -290,6 +290,53 @@ def read_source_doc(doc_id: str) -> dict[str, Any]:
     return data
 
 
+def check_source_integrity(doc_id: str) -> dict[str, Any]:
+    """只读检测 source_docs/<doc_id> 是否被外部篡改（P1-5，契约 §3.1）。
+
+    读取 source_docs/<doc_id>.md 的 frontmatter content_sha256（记录值），
+    读取 source_docs/<doc_id>.txt 的实际内容并重算 sha256（当前值），比对：
+    - 一致 → {"status": "intact", ...}
+    - 不一致 → {"status": "modified", ...}（只报告，不重写）
+    - .txt 缺失（unparseable / 二进制）→ {"status": "not_detectable", ...}
+    - .md 不存在 → {"error": "NOT_FOUND", ...}
+
+    hash 口径与 ingest_source 一致：对 extracted_text（.txt 内容）算 sha256。
+    纯只读，不写任何文件。
+    """
+    rel = _doc_rel(doc_id, "md")
+    safe = Path(resolve_safe_path(rel))
+    if not safe.is_file():
+        return {"error": "NOT_FOUND", "doc_id": doc_id}
+    try:
+        post = frontmatter.load(safe)
+    except (OSError, TypeError, UnicodeDecodeError, ValueError):
+        return {"error": "NOT_FOUND", "doc_id": doc_id}
+    recorded = post.get("content_sha256")
+
+    txt_path = Path(resolve_safe_path(_doc_rel(doc_id, "txt")))
+    if not txt_path.is_file():
+        return {
+            "status": "not_detectable",
+            "doc_id": doc_id,
+            "reason": "extracted text missing (unparseable/binary)",
+        }
+
+    current = hashlib.sha256(txt_path.read_bytes()).hexdigest()
+    if current == recorded:
+        return {
+            "status": "intact",
+            "doc_id": doc_id,
+            "content_sha256": recorded,
+        }
+    return {
+        "status": "modified",
+        "doc_id": doc_id,
+        "recorded_sha256": recorded,
+        "current_sha256": current,
+        "path": _doc_rel(doc_id, "txt"),
+    }
+
+
 def list_sources(
     *,
     status: str | None = None,
