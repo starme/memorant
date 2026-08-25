@@ -8,7 +8,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
@@ -300,6 +299,28 @@ def load_flags() -> MemorantFlags:
     return load_settings().flags
 
 
+_INGEST_DEFAULTS: dict[str, Any] = {
+    "max_bytes_file": 5 * 1024 * 1024,       # markdown/text 单文件
+    "max_bytes_paste": 1 * 1024 * 1024,       # 粘贴文本
+    "max_bytes_binary": 10 * 1024 * 1024,     # word/pdf 单文件
+    "max_bytes_url": 5 * 1024 * 1024,         # url 抓取
+    "extract_max_bytes": 100 * 1024,          # 提取纯文本缓存上限
+    "url_timeout_seconds": 10.0,
+    "source_allow_dirs": [],                  # 本地文件额外白名单（默认仅 MEMORANT_ROOT）
+}
+
+
+def get_ingest_settings() -> dict[str, Any]:
+    """资料投喂（ingest）配置节，缺省用默认值，不报错。
+
+    source_allow_dirs 默认空 = 仅允许 MEMORANT_ROOT；resolve 白名单在
+    source_docs._allowed_source_roots 里补入 MEMORANT_ROOT。
+    """
+    raw = _load_settings_json_merged()
+    ingest = raw.get("ingest") if isinstance(raw.get("ingest"), dict) else {}
+    return {**{k: v for k, v in _INGEST_DEFAULTS.items()}, **{k: v for k, v in ingest.items() if k in _INGEST_DEFAULTS}}
+
+
 def settings_root() -> str | None:
     """Root from settings.json only (no env)."""
     return load_settings().root
@@ -310,11 +331,15 @@ def persona_distill_guidance(settings: MemorantSettings | None = None) -> str:
     cfg = settings or load_settings()
     b = cfg.behavior
     lines = [
-        f"Memorant persona: behavior={b.preset} "
-        f"(selectivity={b.selectivity}, voice={b.voice}, "
-        f"guardrail={b.guardrail}, freshness={b.freshness}); tone={cfg.tone}.",
-        f"Privacy cloud_projection={cfg.cloud_projection}; "
-        f"gate_skip_logging={cfg.gate_skip_logging}.",
+        (
+            f"Memorant persona: behavior={b.preset} "
+            f"(selectivity={b.selectivity}, voice={b.voice}, "
+            f"guardrail={b.guardrail}, freshness={b.freshness}); tone={cfg.tone}."
+        ),
+        (
+            f"Privacy cloud_projection={cfg.cloud_projection}; "
+            f"gate_skip_logging={cfg.gate_skip_logging}."
+        ),
     ]
     if b.selectivity == "high":
         lines.append(

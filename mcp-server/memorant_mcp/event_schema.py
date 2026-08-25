@@ -66,7 +66,7 @@ class EventInput(BaseModel):
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
         ).encode()
 
-    def to_event(self) -> "Event":
+    def to_event(self) -> Event:
         data = self.model_dump(mode="json")
         data["evidence_excerpt"] = bounded_evidence(data.get("evidence_excerpt")) or None
         return Event(

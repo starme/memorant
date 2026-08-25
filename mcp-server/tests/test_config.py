@@ -2,9 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from memorant_mcp.config import load_flags
+from memorant_mcp.config import get_ingest_settings, load_flags
 from memorant_mcp.hook_cli import process
-from memorant_mcp.memory_schema import EvidenceRef, MemoryKind, MemoryWriteInput, TrustTier
+from memorant_mcp.memory_schema import (
+    EvidenceRef,
+    MemoryKind,
+    MemoryWriteInput,
+    TrustTier,
+)
 from memorant_mcp.memory_store import write_memory
 
 
@@ -80,3 +85,30 @@ def test_local_md_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.chdir(tmp_path)
     flags = load_flags()
     assert flags.event_recall is False
+
+
+def test_ingest_settings_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_flag_env(monkeypatch)
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    ingest = get_ingest_settings()
+    assert ingest["max_bytes_file"] == 5 * 1024 * 1024
+    assert ingest["max_bytes_paste"] == 1 * 1024 * 1024
+    assert ingest["source_allow_dirs"] == []
+
+
+def test_ingest_settings_overridable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_flag_env(monkeypatch)
+    home = tmp_path / "home"
+    claude = home / ".claude"
+    claude.mkdir(parents=True)
+    (claude / "memorant.settings.json").write_text(
+        '{"ingest": {"max_bytes_paste": 100, "source_allow_dirs": ["/tmp/allowed"]}}'
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    ingest = get_ingest_settings()
+    assert ingest["max_bytes_paste"] == 100
+    assert ingest["source_allow_dirs"] == ["/tmp/allowed"]

@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOL_PREFIX = "mcp__plugin_memorant_memorant__"
 COMMAND_TOOLS = {
@@ -86,3 +85,24 @@ def test_plugin_registers_journal_observer_hooks() -> None:
             ]
         else:
             assert commands == ["${CLAUDE_PLUGIN_ROOT}/hooks/memorant-hook.sh"]
+
+
+INGEST_TOOLS = [
+    "memorant_ingest_source",
+    "memorant_distill_source",
+    "memorant_list_sources",
+    "memorant_external_policy",
+    "memorant_confirm_external",
+    "memorant_govern_source",
+    "memorant_confirm_promote",
+]
+
+
+def test_ingest_command_uses_plugin_scoped_tool_names() -> None:
+    content = (REPO_ROOT / "commands" / "memorant-ingest.md").read_text()
+    scoped = [f"{TOOL_PREFIX}{name}" for name in INGEST_TOOLS]
+    allowed_line = "allowed-tools: " + ", ".join(scoped)
+    assert allowed_line in content
+    # 写入/召回/feedback/promote 也应在上面的白名单行里（追加在 INGEST_TOOLS 之后）。
+    for name in ("memorant_write_memory", "memorant_recall", "memorant_feedback", "memorant_promote"):
+        assert f"{TOOL_PREFIX}{name}" in content
