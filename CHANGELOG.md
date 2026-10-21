@@ -2,6 +2,22 @@
 
 本仓库（书童 · Memorant）的发布记录。版本号对齐 `.claude-plugin/plugin.json`。
 
+## [0.2.1] — 2026-10-21
+
+把 project / language / stack 从「分区依据」降级为「相关性标签」。
+
+### 行为变更
+- **待蒸馏队列默认不再按 project 过滤**。`list_pending_events()` / `memorant_list_pending_events()` 不传参时返回全部 project 的事件。此前的强等号过滤在嵌套仓库工作区（同一逻辑项目派生出两个 project label）下会静默丢掉一半事件，表现为「journal 断链」。
+- 需要按项目收窄时用新的 `project_filter=`；旧 `project=` 保留为兼容别名，传入时行为不变。
+- `memory_store.list_memories(project=...)` 改名为 `project_filter=`，默认不做 project 过滤。**外部调用方需改名**（直接 `TypeError`，不会静默错判）。
+
+### 新增
+- `MemoryScope.language`：0..N 标签列表。空表示不限语言（跨语言经验、无语言经验都是常态，不降权）。
+- `recall._score()` 引入标签加权：`stack` / `language` 命中各 +1.0，总额封顶 `TAG_BONUS_CAP = 2.0`，仍低于同项目（+3.0）与 verified（+2.0）。
+
+### 不变
+- `resolve_project_identity()` 的 cwd 派生逻辑未改：嵌套工作区仍可能派生多个 project label，但不再导致数据不可见。
+
 ## [0.2.0] — 2026-08-20
 
 品牌统一、历史数据迁移与多宿主适配。
