@@ -4,7 +4,7 @@ Claude Code / Codex 的本地长期记忆运行时。Hooks 采集确定性事件
 
 Tagline: *The companion that remembers what your agents learn.*
 
-> **v0.2.1** — project / language / stack 降级为相关性标签，待蒸馏队列不再按项目分区。完整发布记录见 [CHANGELOG](CHANGELOG.md)。
+> **v0.2.2** — 嵌套仓库工作区下同一逻辑项目不再分裂成多个 project key。完整发布记录见 [CHANGELOG](CHANGELOG.md)。
 
 ## What it does
 

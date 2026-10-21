@@ -24,8 +24,12 @@ def append_event(event_input: EventInput) -> dict[str, Any]:
     """Create one immutable event file, deduplicated by canonical payload hash."""
     event = event_input.to_event()
     data = event.model_dump(mode="json")
-    if not data.get("project_key"):
-        data.pop("project_key", None)
+    # Empty optionals are dropped so the stored event and the caller's event
+    # describe the same field set; otherwise an idempotent append would return
+    # a different shape than the original call.
+    for optional in ("project_key", "project_source"):
+        if not data.get(optional):
+            data.pop(optional, None)
     return append_event_data(data, root=vault_root())
 
 

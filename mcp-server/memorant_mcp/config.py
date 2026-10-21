@@ -67,6 +67,9 @@ class PersonaBehavior:
 @dataclass(frozen=True)
 class MemorantSettings:
     root: str | None = None
+    # Logical project name declared by the workspace. Feeds project identity so
+    # nested repos under one workspace stop minting separate project keys.
+    project_name: str | None = None
     flags: MemorantFlags = field(default_factory=MemorantFlags)
     hook_timeout_seconds: float | None = None
     cloud_projection: str = "line_draft"
@@ -108,6 +111,34 @@ def _read_frontmatter_bools(path: Path) -> dict[str, bool]:
             value.strip().strip("\"'"), _FLAG_DEFAULTS[normalized]
         )
     return found
+
+
+def _read_frontmatter_value(path: Path, wanted: str) -> str | None:
+    """Read one top-level string key from a markdown frontmatter block."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    if end == -1:
+        return None
+    for line in text[3:end].splitlines():
+        key, separator, value = line.partition(":")
+        if not separator or key.strip().lower() != wanted:
+            continue
+        name = value.strip().strip("\"'")
+        return name[:256] or None
+    return None
+
+
+def _find_local_project_name() -> str | None:
+    for path in _walk_claude_files("memorant.local.md"):
+        name = _read_frontmatter_value(path, "project")
+        if name:
+            return name
+    return None
 
 
 def _walk_claude_files(filename: str) -> list[Path]:
@@ -266,6 +297,12 @@ def load_settings() -> MemorantSettings:
     else:
         root = os.path.realpath(os.path.expanduser(root.strip()))
 
+    project_section = raw.get("project") if isinstance(raw.get("project"), dict) else {}
+    declared = project_section.get("name")
+    project_name = declared.strip()[:256] if isinstance(declared, str) else None
+    if not project_name:
+        project_name = _find_local_project_name()
+
     timeout = system.get("hook_timeout_seconds")
     if timeout is not None:
         try:
@@ -289,6 +326,7 @@ def load_settings() -> MemorantSettings:
 
     return MemorantSettings(
         root=root,
+        project_name=project_name,
         flags=_flags_from_sources(system, local_md),
         hook_timeout_seconds=timeout,
         cloud_projection=cloud,

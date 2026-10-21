@@ -2,6 +2,19 @@
 
 本仓库（书童 · Memorant）的发布记录。版本号对齐 `.claude-plugin/plugin.json`。
 
+## [0.2.2] — 2026-10-21
+
+同一逻辑项目不再因工作区结构派生多个 project key。
+
+### 行为变更
+- `resolve_project_identity()` 的 key 优先级改为：**显式声明 > 工作区标记 > git remote > git root > cwd**。此前三条 git 规则各自独立，cwd 从工作区根切进嵌套仓库（或 remote 改名）就会给同一项目铸出新 key，历史被切开。
+- **工作区标记上溯**：向上查找 `.devflow/project.yaml` 的 `project.name` 或 `.memorant/project` 首行。查找不设边界——声明了名字的工作区收纳其下所有路径，含嵌套 git 仓库。
+- **显式声明参与 key 计算**：`memorant.settings.json` 的 `project.name` 或 `memorant.local.md` frontmatter 的 `project:`。此前显式名称只改 label，不影响 key。
+- 新增 journal 事件字段 `project_source`（`explicit` / `workspace_marker` / `git_remote` / `git_root` / `cwd`），记录身份来自哪条规则。
+
+### 不迁移
+历史事件保留原 key。本版本只影响新写入的事件。
+
 ## [0.2.1] — 2026-10-21
 
 把 project / language / stack 从「分区依据」降级为「相关性标签」。
