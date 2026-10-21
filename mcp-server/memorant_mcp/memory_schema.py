@@ -54,6 +54,11 @@ class MemoryScope(BaseModel):
     stack: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
         default_factory=list, max_length=16
     )
+    # Free-form labels, 0..N. Empty means "not language-specific", which is a
+    # normal state (many lessons are cross-language) and never penalised.
+    language: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
+        default_factory=list, max_length=16
+    )
     version: str | None = Field(default=None, max_length=64)
 
 

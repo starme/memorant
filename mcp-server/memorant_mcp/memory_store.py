@@ -176,12 +176,18 @@ def update_memory_fields(
 
 def list_memories(
     *,
-    project: str | None = None,
+    project_filter: str | None = None,
     trust_tier: str | None = None,
     lifecycle: str | None = None,
     limit: int = 50,
     include_legacy: bool = True,
 ) -> list[dict[str, Any]]:
+    """List memories, optionally narrowed by trust/lifecycle/project.
+
+    ``project_filter`` is opt-in on purpose: project is provenance, and callers
+    that want relevance-weighted retrieval should use ``recall_memories``
+    instead of pre-partitioning by project here.
+    """
     root = Path(memorant_root())
     results: list[dict[str, Any]] = []
     memories = root / "memories"
@@ -197,9 +203,12 @@ def list_memories(
                 item["legacy"] = False
             except (OSError, TypeError, UnicodeDecodeError, ValueError, yaml.YAMLError):
                 continue
-            if project and (item.get("scope") or {}).get("project") != project:
+            if (
+                project_filter
+                and (item.get("scope") or {}).get("project") != project_filter
+            ):
                 # also allow top-level project for flexibility
-                if item.get("project") != project:
+                if item.get("project") != project_filter:
                     continue
             if trust_tier and item.get("trust_tier") != trust_tier:
                 continue
@@ -209,7 +218,9 @@ def list_memories(
             if len(results) >= limit:
                 return results
     if include_legacy and len(results) < limit:
-        results.extend(_legacy_memories(project=project, limit=limit - len(results)))
+        results.extend(
+            _legacy_memories(project_filter=project_filter, limit=limit - len(results))
+        )
     return results[:limit]
 
 
@@ -243,7 +254,7 @@ def _migrated_legacy_paths(root: Path) -> set[str]:
     return migrated
 
 
-def _legacy_memories(*, project: str | None, limit: int) -> list[dict[str, Any]]:
+def _legacy_memories(*, project_filter: str | None, limit: int) -> list[dict[str, Any]]:
     root = Path(memorant_root())
     migrated = _migrated_legacy_paths(root)
     out: list[dict[str, Any]] = []
@@ -265,11 +276,11 @@ def _legacy_memories(*, project: str | None, limit: int) -> list[dict[str, Any]]
             except (OSError, TypeError, UnicodeDecodeError, ValueError, yaml.YAMLError):
                 continue
             fm_project = post.get("project")
-            if project:
+            if project_filter:
                 if isinstance(fm_project, list):
-                    if project not in fm_project:
+                    if project_filter not in fm_project:
                         continue
-                elif fm_project not in {None, project}:
+                elif fm_project not in {None, project_filter}:
                     continue
             title = str(post.get("title") or path.stem)
             claim = (post.content or "").strip().splitlines()
@@ -292,7 +303,7 @@ def _legacy_memories(*, project: str | None, limit: int) -> list[dict[str, Any]]
                 "lifecycle": LifecycleState.active.value,
                 "confidence": 0.8,
                 "scope": MemoryScope(
-                    project=fm_project if isinstance(fm_project, str) else project,
+                    project=fm_project if isinstance(fm_project, str) else project_filter,
                     stack=[str(s) for s in stack][:16],
                 ).model_dump(mode="json"),
                 "evidence": [

@@ -134,5 +134,31 @@ def test_legacy_bug_listed_as_verified(
         "---\ntype: bug\ntitle: flaky test\nstack: [pytest]\nproject: memorant\n"
         "date: 2026-07-23\nstatus: open\nversion: '1'\n---\n\n# flaky\n\nroot cause\n"
     )
-    items = list_memories(project="memorant", include_legacy=True)
+    items = list_memories(project_filter="memorant", include_legacy=True)
     assert any(i.get("legacy") and i.get("trust_tier") == "verified" for i in items)
+
+
+def test_list_memories_defaults_to_every_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    _write_b(project="alpha")
+    _write_b(project="beta")
+
+    items = list_memories()
+
+    projects = {(item.get("scope") or {}).get("project") for item in items}
+    assert {"alpha", "beta"} <= projects
+
+
+def test_list_memories_project_filter_narrows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    _write_b(project="alpha")
+    _write_b(project="beta")
+
+    items = list_memories(project_filter="alpha")
+
+    assert items
+    assert all((item.get("scope") or {}).get("project") == "alpha" for item in items)

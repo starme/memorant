@@ -149,8 +149,34 @@ def test_pending_events_exclude_memory_references_and_sort(
     (memories / "one.md").write_text(
         f"---\nsource_event_ids:\n- {first['event_id']}\n---\nbody\n"
     )
-    pending = list_pending_events(project="memorant")
+    pending = list_pending_events(project_filter="memorant")
     assert [x["event_id"] for x in pending] == [second["event_id"]]
+
+
+def test_pending_events_span_every_project_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Project is provenance, not a partition: the queue must not hide events
+    just because the workspace derived a different project label."""
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    alpha = append_event(EventInput(**{**BASE, "project": "alpha"}))
+    beta = append_event(EventInput(**{**BASE, "project": "beta"}))
+
+    pending = list_pending_events()
+
+    assert {x["event_id"] for x in pending} == {alpha["event_id"], beta["event_id"]}
+
+
+def test_pending_events_project_filter_narrows_to_one_label(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    alpha = append_event(EventInput(**{**BASE, "project": "alpha"}))
+    append_event(EventInput(**{**BASE, "project": "beta"}))
+
+    pending = list_pending_events(project_filter="alpha")
+
+    assert [x["event_id"] for x in pending] == [alpha["event_id"]]
 
 
 def test_pending_events_skip_session_start_noise(
