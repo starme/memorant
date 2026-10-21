@@ -43,11 +43,22 @@ def _referenced_event_ids() -> set[str]:
 
 
 def list_pending_events(
-    session_id: str | None = None, project: str | None = None
+    session_id: str | None = None,
+    project: str | None = None,
+    project_filter: str | None = None,
 ) -> list[dict[str, Any]]:
+    """List unreferenced journal events.
+
+    ``project`` is a legacy alias that still hard-filters when supplied, so
+    existing callers keep their behaviour. ``project_filter`` makes that intent
+    explicit. With neither set the queue is global: project is provenance
+    metadata, not a partition — filtering here used to hide half of a user's
+    events whenever the workspace derived two project labels.
+    """
     root = Path(vault_root())
     referenced = _referenced_event_ids()
     events: list[dict[str, Any]] = []
+    active_filter = project_filter or project
     for path in sorted((root / "journal").glob("**/*.md")):
         try:
             event = Event(**dict(frontmatter.load(path).metadata))
@@ -67,7 +78,7 @@ def list_pending_events(
             continue
         if session_id is not None and event.session_id != session_id:
             continue
-        if project is not None and event.project != project:
+        if active_filter is not None and event.project != active_filter:
             continue
         events.append(_event_dict(event, path.relative_to(root).as_posix()))
     return sorted(events, key=lambda item: (item["observed_at"], item["event_id"]))

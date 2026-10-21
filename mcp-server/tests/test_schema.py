@@ -36,3 +36,18 @@ def test_daily_supports_multiple_projects() -> None:
     )
 
     assert daily.project == ["memorant", "service-api"]
+
+
+def test_scope_language_defaults_empty_and_accepts_many() -> None:
+    from memorant_mcp.memory_schema import MemoryScope
+
+    assert MemoryScope().language == []
+    assert MemoryScope(language=["python", "go"]).language == ["python", "go"]
+
+
+def test_legacy_envelope_without_language_still_loads() -> None:
+    from memorant_mcp.memory_schema import MemoryScope
+
+    scope = MemoryScope.model_validate({"project": "app", "stack": ["pytest"]})
+
+    assert scope.language == []

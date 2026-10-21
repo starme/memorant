@@ -438,10 +438,17 @@ async def memorant_append_event(
 async def memorant_list_pending_events(
     session_id: str | None = None,
     project: str | None = None,
+    project_filter: str | None = None,
 ) -> dict[str, Any]:
-    """List journal events not referenced by any memory source_event_ids."""
+    """List journal events not referenced by any memory source_event_ids.
+
+    Returns every project's pending events unless ``project_filter`` is given:
+    project is provenance, not a partition.
+    """
     try:
-        events = list_pending_events(session_id=session_id, project=project)
+        events = list_pending_events(
+            session_id=session_id, project=project, project_filter=project_filter
+        )
         return {"events": events, "count": len(events)}
     except Exception as e:
         return {"error": "ERROR", "message": str(e), "events": [], "count": 0}

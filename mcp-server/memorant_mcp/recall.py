@@ -21,6 +21,11 @@ NEGATIVE_WEIGHT = 0.55
 DUSTY_WEIGHT = 0.7
 DEFAULT_LIMIT = 5
 MAX_CHARS = 8000
+# Tag bumps stay below same-project (+3.0) and trust (+2.0): labels refine
+# relevance, they do not outrank provenance or verification.
+TAG_WEIGHT = 1.0
+# Total tag bonus is capped so piling on labels cannot game the ranking.
+TAG_BONUS_CAP = 2.0
 INACTIVE = {
     LifecycleState.superseded.value,
     LifecycleState.candidate.value,
@@ -54,6 +59,25 @@ def _overlap(memory: dict[str, Any], query_tokens: set[str]) -> int:
     return len(query_tokens & _tokenize(f"{title} {claim}"))
 
 
+def _tag_bonus(memory: dict[str, Any], query_tokens: set[str]) -> float:
+    """Score provenance labels against the query; missing labels cost nothing."""
+    if not query_tokens:
+        return 0.0
+    scope = memory.get("scope") or {}
+    if not isinstance(scope, dict):
+        return 0.0
+    hits = 0
+    for field in ("stack", "language"):
+        values = scope.get(field) or []
+        if isinstance(values, str):
+            values = [values]
+        if not isinstance(values, list):
+            continue
+        if any(str(value).lower() in query_tokens for value in values):
+            hits += 1
+    return min(hits * TAG_WEIGHT, TAG_BONUS_CAP)
+
+
 def _score(
     memory: dict[str, Any],
     query_tokens: set[str],
@@ -73,6 +97,8 @@ def _score(
         score += 3.0
     elif project and memory.get("project") == project:
         score += 2.0
+
+    score += _tag_bonus(memory, query_tokens)
 
     if is_negative_lifecycle(memory):
         # Rank near-pit hits when similar; still below hot verified.
@@ -119,7 +145,9 @@ def recall_memories(
     guardrail = settings.behavior.guardrail if settings else "high"
     neg_min = negative_overlap_threshold(guardrail)
 
-    candidates = list_memories(project=None, limit=200, include_legacy=True)
+    # Candidates are never pre-filtered by project: project is provenance and
+    # only earns a ranking bump below. Partitioning here would hide memories.
+    candidates = list_memories(limit=200, include_legacy=True)
     ranked: list[tuple[float, dict[str, Any], int]] = []
     for memory in candidates:
         lifecycle = memory.get("lifecycle") or LifecycleState.active.value
