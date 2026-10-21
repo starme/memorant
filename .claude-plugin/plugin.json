@@ -1,6 +1,6 @@
 {
   "name": "memorant",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "书童 · Memorant: local long-term memory runtime with journal, A/B memories, event-driven recall, and multi-host adapters.",
   "author": {
     "name": "tal"
