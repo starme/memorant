@@ -36,6 +36,11 @@ class EventInput(BaseModel):
     project_key: str | None = Field(
         default=None, pattern=r"^[0-9a-f]{16,64}$", max_length=64
     )
+    # Which rule derived project/project_key: explicit | workspace_marker |
+    # git_remote | git_root | cwd. Optional so existing events still parse;
+    # it exists to make "why did this event land under this project?"
+    # answerable after the fact.
+    project_source: str | None = Field(default=None, max_length=32)
     source: str = Field(min_length=1, max_length=128)
     tool_name: str | None = Field(default=None, max_length=128)
     outcome: str | None = Field(default=None, max_length=64)

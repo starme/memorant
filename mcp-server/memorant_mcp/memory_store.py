@@ -303,7 +303,9 @@ def _legacy_memories(*, project_filter: str | None, limit: int) -> list[dict[str
                 "lifecycle": LifecycleState.active.value,
                 "confidence": 0.8,
                 "scope": MemoryScope(
-                    project=fm_project if isinstance(fm_project, str) else project_filter,
+                    project=fm_project
+                    if isinstance(fm_project, str)
+                    else project_filter,
                     stack=[str(s) for s in stack][:16],
                 ).model_dump(mode="json"),
                 "evidence": [

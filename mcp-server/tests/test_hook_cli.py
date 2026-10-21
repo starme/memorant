@@ -269,3 +269,32 @@ def test_session_start_migration_hint_not_tied_to_recall(
     context = output["hookSpecificOutput"]["additionalContext"]
     assert "迁移" in context
     assert "RECALL_CONTEXT" in context
+
+
+def test_session_start_records_project_source(tmp_path, monkeypatch) -> None:
+    """Journal events carry how the project identity was derived."""
+    import json
+
+    from memorant_mcp.hook_cli import process
+
+    monkeypatch.setenv("MEMORANT_ROOT", str(tmp_path))
+    process(
+        {
+            "hook_event_name": "SessionStart",
+            "session_id": "session-source",
+            "cwd": str(tmp_path),
+            "project": "declared",
+        }
+    )
+
+    events = [
+        json.loads(p.read_text().split("---")[1].replace(":", ": ", 1))
+        if False
+        else p.read_text()
+        for p in (tmp_path / "journal").glob("**/*.md")
+    ]
+    assert events
+    assert (
+        'project_source: "explicit"' in events[0]
+        or "project_source: explicit" in events[0]
+    )

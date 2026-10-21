@@ -218,6 +218,15 @@ def _validate_input(data: dict[str, Any]) -> dict[str, Any]:
         cleaned["project_key"] = project_key.strip().lower()
     else:
         raise ValueError("invalid project_key")
+    project_source = data.get("project_source")
+    if project_source is None or project_source == "":
+        cleaned["project_source"] = None
+    elif isinstance(project_source, str) and re.fullmatch(
+        r"[a-z_]{1,32}", project_source.strip()
+    ):
+        cleaned["project_source"] = project_source.strip()
+    else:
+        raise ValueError("invalid project_source")
     return cleaned
 
 
@@ -228,6 +237,8 @@ def build_event(data: dict[str, Any]) -> dict[str, Any]:
     )
     if not cleaned.get("project_key"):
         cleaned.pop("project_key", None)
+    if not cleaned.get("project_source"):
+        cleaned.pop("project_source", None)
     return {
         **cleaned,
         "event_id": uuid.uuid4().hex,
@@ -269,6 +280,9 @@ def _render_event(event: dict[str, Any]) -> str:
     if event.get("project_key"):
         # Keep project_key next to project for readability.
         fields.insert(fields.index("project") + 1, "project_key")
+    if event.get("project_source"):
+        # Next to project too: it explains how the key above was derived.
+        fields.insert(fields.index("project") + 1, "project_source")
     frontmatter = "\n".join(
         f"{key}: {_yaml_scalar(key, event.get(key))}" for key in fields
     )
@@ -414,7 +428,7 @@ def _validate_stored_event(
         "payload_hash",
         "tags",
     }
-    optional_fields = {"project_key"}
+    optional_fields = {"project_key", "project_source"}
     keys = set(event)
     if not fixed_fields.issubset(keys) or not keys.issubset(
         fixed_fields | optional_fields
@@ -425,6 +439,12 @@ def _validate_stored_event(
         isinstance(project_key, str) and re.fullmatch(r"[0-9a-f]{16,64}", project_key)
     ):
         raise ValueError("invalid project_key")
+    project_source = event.get("project_source")
+    if project_source is not None and not (
+        isinstance(project_source, str)
+        and re.fullmatch(r"[a-z_]{1,32}", project_source)
+    ):
+        raise ValueError("invalid project_source")
     if not isinstance(event["event_id"], str) or not re.fullmatch(
         r"[0-9a-f]{32}", event["event_id"]
     ):

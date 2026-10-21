@@ -100,27 +100,36 @@ def _text(value: Any, limit: int) -> str:
     return value[:limit] if isinstance(value, str) else ""
 
 
-def _project_fields(payload: dict[str, Any]) -> tuple[str, str | None]:
-    """Return (project_label, project_key)."""
+def _project_fields(payload: dict[str, Any]) -> tuple[str, str | None, str | None]:
+    """Return (project_label, project_key, project_source)."""
     explicit = _text(payload.get("project"), 256).strip() or None
+    if not explicit:
+        # A workspace that declares its project name (memorant.settings.json
+        # project.name or memorant.local.md) wins over cwd guessing.
+        try:
+            from .config import load_settings
+
+            explicit = load_settings().project_name
+        except Exception:
+            explicit = None
     cwd = _text(payload.get("cwd"), 1024).rstrip("/") or None
     try:
         from .project_identity import resolve_project_identity
 
         identity = resolve_project_identity(cwd, explicit_project=explicit)
-        return identity.project_label, identity.project_key
+        return identity.project_label, identity.project_key, identity.source
     except Exception:
         try:
             from project_identity import resolve_project_identity  # type: ignore
 
             identity = resolve_project_identity(cwd, explicit_project=explicit)
-            return identity.project_label, identity.project_key
+            return identity.project_label, identity.project_key, identity.source
         except Exception:
             if explicit:
-                return explicit, None
+                return explicit, None, None
             if cwd:
-                return Path(cwd).name[:256] or "unknown", None
-            return "unknown", None
+                return Path(cwd).name[:256] or "unknown", None, None
+            return "unknown", None, None
 
 
 def _join_context(*parts: str) -> str:
@@ -265,7 +274,7 @@ def _legacy_migration_hint() -> str:
 
 def process(payload: dict[str, Any]) -> dict[str, Any]:
     hook_name = _text(payload.get("hook_event_name"), 64)
-    project, project_key = _project_fields(payload)
+    project, project_key, project_source = _project_fields(payload)
 
     if hook_name == "UserPromptSubmit":
         prompt = _text(payload.get("prompt"), 2000) or _text(
@@ -281,6 +290,7 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
                 "session_id": _text(payload.get("session_id"), 256) or "unknown",
                 "project": project,
                 "project_key": project_key,
+                "project_source": project_source,
                 "source": "claude-code-hook",
                 "tool_name": None,
                 "outcome": "observed",
@@ -327,6 +337,7 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
             "session_id": _text(payload.get("session_id"), 256) or "unknown",
             "project": project,
             "project_key": project_key,
+            "project_source": project_source,
             "source": "claude-code-hook",
             "tool_name": _text(payload.get("tool_name"), 128) or None,
             "outcome": outcome,
